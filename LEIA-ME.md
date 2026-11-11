@@ -38,7 +38,7 @@ Controle financeiro pessoal: contas, cartões com faturas, categorias e subcateg
 
 Nos outros aparelhos, basta abrir o endereço e conectar o mesmo Dropbox.
 
-Os dados ficam em `Dropbox/Aplicativos/<nome do app>/minhas-financas-dados.json`. O próprio Dropbox guarda as versões anteriores desse arquivo, o que também serve de cópia de segurança.
+Os dados ficam em `Dropbox/Aplicativos/minhas-financas/minhas-financas-dados.json`. O próprio Dropbox guarda as versões anteriores desse arquivo, o que também serve de cópia de segurança.
 
 ## Como o sistema calcula
 
