@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Minhas Finanças</title>
 <meta name="theme-color" content="#0d6b59">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d6b59'/><text x='32' y='42' font-size='26' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'>R$</text></svg>">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <script>
   // aplica o tema antes de desenhar a página, para não piscar
   try { const t = localStorage.getItem("mf-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
@@ -134,7 +136,7 @@ select.field { appearance: auto; }
 .hello { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
 .hello .greet { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .kpi { display: grid; gap: 2px; min-width: 0; }
-.kpi .v { font-family: var(--f-display); font-size: clamp(1.05rem, 1.55vw, 1.3rem); font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi .v { font-family: var(--f-display); font-size: clamp(.98rem, 1.3vw, 1.3rem); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi .s { font-size: .76rem; color: var(--muted); }
 .delta { font-size: .74rem; font-weight: 700; }
 .big { display: grid; gap: 3px; border-left: 4px solid var(--accent); padding-left: 14px; }
@@ -244,6 +246,16 @@ tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
 .welcome p { margin: 0; max-width: 64ch; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
+/* etapa 2 */
+.usebar { display: inline-flex; gap: 8px; align-items: center; min-width: 150px; }
+.usebar .meter { flex: 1; min-width: 60px; }
+tr.subrow td { background: color-mix(in srgb, var(--surface-2) 45%, transparent); font-size: .86rem; padding-top: 6px; padding-bottom: 6px; }
+tr.pend td { background: var(--warn-soft); }
+table.metas .field { padding: 6px 8px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: .88rem; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+.check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+.goalbody { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: center; }
+.info .tablewrap { margin-top: 8px; }
 /* sheet */
 .scrim { position: fixed; inset: 0; background: rgba(5, 15, 12, .45); z-index: 30; }
 .sheet { position: fixed; z-index: 31; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(660px, calc(100% - 24px)); max-height: calc(100% - 32px); overflow-y: auto; background: var(--surface); border-radius: 20px; padding: 20px; display: grid; gap: 14px; box-shadow: var(--shadow); }

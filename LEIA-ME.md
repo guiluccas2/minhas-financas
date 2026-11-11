@@ -1,6 +1,8 @@
 # Minhas Finanças
 
-Controle financeiro pessoal: contas, cartões com faturas, categorias e subcategorias com metas, parcelas, transferências e lançamento rápido.
+Controle financeiro pessoal: contas, cartões com faturas, categorias e subcategorias, metas com sugestão pela média, contas fixas, objetivos de economia, análise de médias, parcelas, transferências e lançamento rápido.
+
+Endereço: **https://guiluccas2.github.io/minhas-financas/**
 
 - **A página** fica no GitHub Pages (endereço fixo, abre em qualquer computador ou celular).
 - **Os dados** ficam num arquivo no seu **Dropbox** (pasta *Aplicativos*). Você conecta o Dropbox uma vez por aparelho e tudo é salvo sozinho e sincronizado entre os aparelhos. Uma cópia fica no navegador, então a página abre na hora e funciona sem internet, enviando as alterações quando a conexão volta.
@@ -40,12 +42,32 @@ Nos outros aparelhos, basta abrir o endereço e conectar o mesmo Dropbox.
 
 Os dados ficam em `Dropbox/Aplicativos/minhas-financas/minhas-financas-dados.json`. O próprio Dropbox guarda as versões anteriores desse arquivo, o que também serve de cópia de segurança.
 
+## Instalar como aplicativo no Windows
+
+- **Google Chrome:** abra o site, clique no menu **⋮** → **Transmitir, salvar e compartilhar** → **Instalar página como app** (ou no ícone de instalar, no fim da barra de endereço).
+- **Microsoft Edge:** menu **⋯** → **Aplicativos** → **Instalar este site como um aplicativo**.
+
+O sistema ganha ícone no menu Iniciar e na área de trabalho, e abre em janela própria. Para deixar na barra de tarefas: com ele aberto, clique com o botão direito no ícone da barra e escolha **Fixar na barra de tarefas**. As atualizações chegam sozinhas.
+
+## Telas
+
+- **Início:** resumo do mês, saldo, faturas, contas, cartões, contas fixas a efetivar, objetivos e divisão de gastos por período.
+- **Lançamentos:** lista com pesquisa e filtros, e o **extrato com saldo dia a dia** (inclui contas fixas e faturas previstas).
+- **Contas** e **Cartões:** saldos, faturas, pagamento de fatura.
+- **Metas:** meta por categoria e subcategoria, uso em %, alertas a partir de 80%, e **sugestão pela média** de 3, 6 ou 12 meses.
+- **Contas fixas:** o que se repete todo mês. Aparece para você clicar em **Efetivar** (ou **Alterar** quando o valor do mês muda, ou **Pular mês**).
+- **Objetivos:** valor, data, quanto guardar por mês, depósitos e calculadora.
+- **Análise:** médias de 3, 6 e 12 meses por categoria e subcategoria, comparação com a média, despesas fixas × variáveis e maiores despesas.
+- **Histórico:** receitas e despesas mês a mês.
+
 ## Como o sistema calcula
 
 - **Saldo da conta** = saldo informado + receitas − despesas (débito, Pix, dinheiro, boleto) ± transferências − pagamentos de fatura, contando o que for lançado depois de você informar o saldo.
 - **Compras no crédito** não mexem no saldo da conta: entram na fatura do cartão. Compras no dia do fechamento ou depois vão para a fatura seguinte. O saldo só cai quando você registra o pagamento da fatura.
 - **Em qual mês a compra no cartão conta** (resumo, metas, histórico): no mês da compra (padrão) ou no mês de vencimento da fatura. Escolha em *Configurações*.
 - **Transferências e pagamentos de fatura** não contam como despesa nem receita.
+- **Médias** usam os meses completos anteriores ao mês escolhido, sem contar meses antes do seu primeiro lançamento.
+- **Saldo de dias anteriores** ao saldo informado é calculado de trás para frente, a partir dos lançamentos.
 
 ## Lançamento rápido
 
