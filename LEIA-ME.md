@@ -76,6 +76,8 @@ No celular, a navegação fica numa barra embaixo (Início, Lançamentos, **+**,
 - **Em qual mês a compra no cartão conta** (resumo, metas, histórico): no mês da compra (padrão) ou no mês de vencimento da fatura. Escolha em *Configurações*.
 - **Transferências e pagamentos de fatura** não contam como despesa nem receita.
 - **Médias** usam os meses completos anteriores ao mês escolhido, sem contar meses antes do seu primeiro lançamento.
+- **Sincronização entre aparelhos:** cada aparelho compara a versão dele e a do Dropbox com a última versão que os dois tinham em comum, e junta item a item (lançamentos, categorias, contas, cartões, contas fixas, objetivos e depósitos). Não depende do relógio dos aparelhos. Se o mesmo campo for alterado em dois aparelhos ao mesmo tempo, vale o do aparelho que salvou por último.
+- **Última forma de pagamento** usada fica só no aparelho.
 - **Saldo de dias anteriores** ao saldo informado é calculado de trás para frente, a partir dos lançamentos.
 
 ## Lançamento rápido
@@ -88,6 +90,7 @@ A barra do topo da tela Início entende frases curtas:
 | `padaria 12,50 ontem nubank` | Mercado › Padaria, ontem, crédito Nubank |
 | `uber 18 dia 3 pix inter` | Transporte › Táxi/Uber, dia 3, Pix pela conta Inter |
 | `+ salário 6120 05/11 nubank` | receita em Salário, 05/11, entrando na conta Nubank |
+| `eletrônicos tv 2400 10x nubank` | 10 parcelas de R$ 240 em Compras › Eletrônicos, no crédito Nubank (o valor digitado é o total) |
 
 Datas aceitas: `hoje`, `ontem`, `anteontem`, `dia 8`, `08/11`, `08/11/2026`. Para parcelas e descrição, use o botão **+ Lançar**.
 

@@ -4,6 +4,7 @@
 //    Uma cópia fica no navegador, então a página abre na hora e funciona sem internet.
 //  - Local (localStorage): usada enquanto o Dropbox não foi configurado em js/config.js.
 import { dropboxConfig } from "./config.js";
+import { merge3, legacyMerge } from "./merge.js";
 
 export const cloudConfigured = !!dropboxConfig.appKey;
 export const newId = (p = "t") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -60,18 +61,8 @@ async function finishRedirect() {
 }
 
 // ---------------- Dropbox: sincronização ----------------
-function mergeData(a, b) {
-  // junta duas versões do arquivo: lançamentos pela data de alteração, exclusões pelo registro de exclusão,
-  // configurações pela versão salva mais recente
-  const deleted = { ...(a.deleted || {}) };
-  for (const [id, ts] of Object.entries(b.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, ts);
-  const byId = new Map();
-  for (const t of [...(a.tx || []), ...(b.tx || [])]) { const cur = byId.get(t.id); if (!cur || (t.u || t.at || 0) > (cur.u || cur.at || 0)) byId.set(t.id, t); }
-  const tx = [...byId.values()].filter(t => !(deleted[t.id] >= (t.u || t.at || 0)));
-  const sa = a.settings, sb = b.settings;
-  const settings = !sa ? sb : !sb ? sa : ((sb._u || 0) > (sa._u || 0) ? sb : sa);
-  return { app: "minhas-financas", v: 3, savedAt: Math.max(a.savedAt || 0, b.savedAt || 0), settings, tx, deleted };
-}
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const clean = (d) => ({ settings: d?.settings ?? null, tx: Array.isArray(d?.tx) ? d.tx : [] });
 
 async function dropboxStore(ui) {
   let tok = await finishRedirect().catch(e => { ui.error(e.message); return null; }) || lsGet(LS_TOKEN);
@@ -129,9 +120,11 @@ async function dropboxStore(ui) {
 
   // estado: a última versão conhecida do arquivo, a revisão dela no Dropbox e se há alterações locais por enviar
   const cache = lsGet(LS_CACHE) || {};
-  let data = cache.data || { app: "minhas-financas", v: 3, settings: null, tx: [], deleted: {} };
+  // data = versão deste aparelho; base = última versão sincronizada com o Dropbox (referência da junção em 3 vias)
+  let data = clean(cache.data), base = cache.base ? clean(cache.base) : (cache.data && !cache.dirty ? clean(cache.data) : null);
   let rev = cache.rev || null, dirty = !!cache.dirty, status = dirty ? "saving" : "saved", listener = () => {}, pushTimer = null, busy = false, again = false;
-  const saveCache = () => lsSet(LS_CACHE, { data, rev, dirty });
+  const saveCache = () => lsSet(LS_CACHE, { data, base, rev, dirty });
+  const join = (remote) => base ? merge3(base, data, remote) : legacyMerge(data, remote);
   const emit = () => listener({ settings: data.settings, tx: data.tx.slice(), sync: status });
   const setStatus = (s) => { if (s !== status) { status = s; emit(); } };
 
@@ -141,7 +134,7 @@ async function dropboxStore(ui) {
     if (!r.ok) throw new Error("Erro ao ler o arquivo no Dropbox (" + r.status + ")");
     let meta = null; try { meta = JSON.parse(r.headers.get("Dropbox-API-Result")); } catch {}
     const text = await r.text();
-    const remote = text.trim() ? JSON.parse(text) : {};
+    const remote = clean(text.trim() ? JSON.parse(text) : {});
     return { remote, rev: meta?.rev || await currentRev() };
   }
   async function currentRev() {
@@ -151,7 +144,7 @@ async function dropboxStore(ui) {
     return (await r.json()).rev;
   }
   async function upload() {
-    const payload = { ...data, app: "minhas-financas", v: 3, savedAt: Date.now() };
+    const payload = { app: "minhas-financas", v: 4, savedAt: Date.now(), settings: data.settings, tx: data.tx };
     const mode = rev ? { ".tag": "update", update: rev } : { ".tag": "add" };
     const r = await call("https://content.dropboxapi.com/2/files/upload", { arg: { path: PATH, mode, autorename: false, mute: true, strict_conflict: true }, body: JSON.stringify(payload) });
     if (r.status === 409) return { conflict: true };
@@ -166,7 +159,7 @@ async function dropboxStore(ui) {
       for (let i = 0; i < 4; i++) {
         if (!dirty) {
           const cur = await currentRev();
-          if (cur && cur !== rev) { const d = await download(); if (!d.notFound) { data = mergeData({ deleted: {} }, d.remote); rev = d.rev; saveCache(); emit(); } }
+          if (cur && cur !== rev) { const d = await download(); if (!d.notFound) { data = d.remote; base = clone(d.remote); rev = d.rev; saveCache(); emit(); } }
           else if (!cur && rev) { rev = null; dirty = true; continue; }
           break;
         }
@@ -174,10 +167,10 @@ async function dropboxStore(ui) {
         if (res.conflict) {
           const d = await download();
           if (d.notFound) { rev = null; continue; }
-          data = mergeData(data, d.remote); rev = d.rev; saveCache(); emit();
+          data = clean(join(d.remote)); base = clone(d.remote); rev = d.rev; saveCache(); emit();
           continue;
         }
-        rev = res.rev; dirty = false; saveCache();
+        rev = res.rev; dirty = false; base = clone(data); saveCache();
         break;
       }
       setStatus(dirty ? "saving" : "saved");
@@ -206,17 +199,15 @@ async function dropboxStore(ui) {
     call("https://api.dropboxapi.com/2/users/get_current_account", { json: null })
       .then(r => r.ok ? r.json() : null).then(j => { if (j) { store.user = { displayName: j.name?.display_name || "", email: j.email || "" }; emit(); } }).catch(() => {});
   };
-  store.saveSettings = async (s) => { data.settings = { ...s, _u: Date.now() }; changed(); };
+  store.saveSettings = async (s) => { const { _u, lastPay, ...rest } = s; data.settings = rest; changed(); };
   store.putTx = async (list) => {
-    const now = Date.now(), ids = new Set(list.map(t => t.id));
-    data.tx = data.tx.filter(t => !ids.has(t.id)).concat(list.map(t => ({ ...t, u: now })));
-    for (const id of ids) delete data.deleted?.[id];
+    const ids = new Set(list.map(t => t.id));
+    data.tx = data.tx.filter(t => !ids.has(t.id)).concat(list.map(({ u, ...t }) => t));
     changed();
   };
   store.delTx = async (ids) => {
-    const now = Date.now(), set = new Set(ids);
+    const set = new Set(ids);
     data.tx = data.tx.filter(t => !set.has(t.id));
-    data.deleted = data.deleted || {}; for (const id of ids) data.deleted[id] = now;
     changed();
   };
   store.syncNow = () => sync();

@@ -120,6 +120,9 @@ function saveSettings() {
 }
 function putTx(list) { Promise.resolve(S.store.putTx(list)).catch(e => toast("Não foi possível salvar: " + (e?.message || e))); }
 function delTx(ids) { Promise.resolve(S.store.delTx(ids)).catch(e => toast("Não foi possível apagar: " + (e?.message || e))); }
+// última forma de pagamento usada: fica só neste aparelho (não precisa ir para o Dropbox)
+const lastPayGet = () => { try { return JSON.parse(localStorage.getItem("mf-lastpay")) || { p: "", k: "", a: "" }; } catch { return { p: "", k: "", a: "" }; } };
+const lastPaySet = (v) => { try { localStorage.setItem("mf-lastpay", JSON.stringify(v)); } catch {} };
 const mkTx = (body) => ({ id: newId("t"), at: Date.now(), ...body, m: body.d.slice(0, 7) });
 
 // =====================================================================
@@ -925,6 +928,9 @@ function parseQuick(text) {
       const dd = +tk[i + 1]; if (dd >= 1 && dd <= 31) { let cand = ymd(ty, tm, dd); if (cand > today) cand = ymd(ty, tm - 1, dd); d = cand; used[i] = used[i + 1] = true; }
     }
   });
+  // parcelas: "10x" (o valor digitado é o total da compra)
+  let pn = 1;
+  tk.forEach((w, i) => { if (used[i] || pn > 1) return; const mm = norm(w).match(/^(\d{1,3})x$/); if (mm && +mm[1] >= 2 && +mm[1] <= 120) { pn = +mm[1]; used[i] = true; } });
   // valor
   let v = null;
   tk.forEach((w, i) => { if (v !== null || used[i]) return; if (/^(r\$)?\d[\d.]*(,\d{1,2})?$/i.test(w) || /^\d+\.\d{1,2}$/.test(w)) { v = parseMoney(w); used[i] = true; } });
@@ -963,7 +969,7 @@ function parseQuick(text) {
   if (!a && t === "out" && p !== "credito") a = st().prefs.defaultAccount || "";
   if (!a && t === "in") a = st().prefs.defaultAccount || "";
   if (!d) d = defaultDate();
-  return { v, t, cat: best, sub, d, p: p === "credito" && !k ? "" : p, k, a: p === "credito" ? "" : a, n: titleWords.join(" ") };
+  return { v, t, cat: best, sub, d, p: p === "credito" && !k ? "" : p, k, a: p === "credito" ? "" : a, n: titleWords.join(" "), pn: t === "out" ? pn : 1 };
 }
 function updateQuickPreview() {
   const box = $("#qprev"), inp = $("#quickInput"); if (!box || !inp) return;
@@ -971,6 +977,7 @@ function updateQuickPreview() {
   if (!q) { box.innerHTML = `<span class="muted qhint">Ex.: <b>mercado 230</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b>. Para parcelas e descrição, use <b>+ Lançar</b>.</span>`; return; }
   const pills = [];
   pills.push(q.v ? `<span class="pill ${q.t === "in" ? "in" : "out"}">${q.t === "in" ? "+" : "−"} ${money(q.v)}</span>` : `<span class="pill warn">falta o valor</span>`);
+  if (q.pn > 1 && q.v) { const pl = instPlan({ pn: q.pn, v: q.v, mode: "total" }); pills.push(`<span class="pill">${q.pn}x de ${money(pl.parts[q.pn - 1])}</span>`); }
   pills.push(q.cat ? `<span class="pill">${esc(q.cat.name)}${q.sub ? " › " + esc(q.sub.name) : ""}</span>` : `<span class="pill warn">categoria não reconhecida</span>`);
   pills.push(`<span class="pill date">${dm(q.d)} (${esc(weekday(q.d).split("-")[0])})</span>`);
   if (q.k) pills.push(`<span class="pill">Crédito ${esc(cardById(q.k)?.name)}</span>`);
@@ -983,10 +990,15 @@ function submitQuick() {
   const inp = $("#quickInput"); const q = parseQuick(inp.value);
   if (!q) { openSheet(); return; }
   inp.value = "";
-  if (q.v && q.cat) {
+  if (q.v && q.cat && q.pn > 1) {
+    const pl = instPlan({ pn: q.pn, v: q.v, mode: "total" }), g = "g" + uid8(), at = Date.now();
+    const base = { t: "out", c: q.cat.id, s: q.sub?.id || "", p: q.p, k: q.k, a: q.a, n: q.n, o: "" };
+    putTx(pl.parts.map((v, i) => mkTx({ ...base, v, d: addMonthsDate(q.d, i), g, pi: i + 1, pn: q.pn, at: at + i })));
+    toast(`Salvo em ${q.pn} parcelas de ${money(pl.parts[q.pn - 1])} em ${q.cat.name}`);
+  } else if (q.v && q.cat) {
     putTx([mkTx({ t: q.cat.type, v: q.v, c: q.cat.id, s: q.sub?.id || "", d: q.d, p: q.p, k: q.k, a: q.a, n: q.n, o: "" })]);
     toast(`Salvo: ${q.cat.type === "in" ? "+" : "−"} ${money(q.v)} em ${q.cat.name}${q.sub ? " › " + q.sub.name : ""}, ${dm(q.d)}`);
-  } else openSheet({ v: q.v, c: q.cat?.id || null, s: q.sub?.id || null, t: q.t, n: q.n, d: q.d, p: q.p, k: q.k, a: q.a });
+  } else openSheet({ v: q.v, c: q.cat?.id || null, s: q.sub?.id || null, t: q.t, n: q.n, d: q.d, p: q.p, k: q.k, a: q.a, pn: q.pn || 1 });
   updateQuickPreview();
 }
 
@@ -996,7 +1008,7 @@ function submitQuick() {
 const sheet = $("#sheet"), scrim = $("#scrim");
 let sheetState = null;
 function openSheet(init = {}) {
-  const lp = st().lastPay;
+  const lp = lastPayGet();
   sheetState = { kind: "tx", id: null, t: "out", v: null, c: null, s: null, p: lp.p || "", k: lp.k || "", a: lp.a || st().prefs.defaultAccount || "", a2: "", n: "", o: "", d: defaultDate(),
     pn: 1, mode: "total", rec: false, r: null, rm: null, newCat: false, newSub: false, newCard: false, confirmDel: false, ...init };
   renderSheet(); sheet.hidden = false; scrim.hidden = false;
@@ -1128,7 +1140,7 @@ function saveSheet(more) {
   if (f.p === "credito" && f.t === "out" && !f.k) { err.textContent = "Escolha qual cartão (ou cadastre um novo)."; return; }
   const credit = f.p === "credito" && f.t === "out";
   const base = { t: f.t, c: f.c, s: f.s || "", p: f.p || "", k: credit ? f.k : "", a: credit ? "" : (f.a || ""), n: f.n, o: f.o };
-  st().lastPay = { p: base.p, k: base.k, a: base.a || st().lastPay.a };
+  lastPaySet({ p: base.p, k: base.k, a: base.a || lastPayGet().a });
   const orig = f.id ? S.tx.find(t => t.id === f.id) : null;
   // configurações (última forma de pagamento, nova conta fixa) são salvas antes dos lançamentos,
   // para a atualização que vem depois de gravar o lançamento não desfazer a mudança
@@ -1147,7 +1159,7 @@ function saveSheet(more) {
       list = [mkTx({ ...base, v: f.v, d: f.d, r: rec.id, rm: rec.start })]; msg = "Salvo e cadastrado como conta fixa";
     } else { list = [mkTx({ ...base, v: f.v, d: f.d })]; msg = `Salvo em ${catById(f.c)?.name || ""}`; }
   }
-  saveSettings();
+  if (f.rec && !orig) saveSettings();   // só regrava as configurações quando nasce uma conta fixa
   putTx(list); toast(msg);
   if (more) openSheet({ t: f.t, d: f.d }); else closeSheet();
 }
