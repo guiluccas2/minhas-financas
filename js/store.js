@@ -84,6 +84,22 @@ async function dropboxStore(ui) {
       .forEach(([k, v]) => u.searchParams.set(k, v));
     location.href = u.toString();
   };
+  // conexão por código (sem redirecionamento): útil no app instalado no iPhone
+  store.startCode = async () => {
+    const { verifier, challenge } = await pkce();
+    localStorage.setItem(SS_VERIFIER, verifier);
+    const u = new URL("https://www.dropbox.com/oauth2/authorize");
+    Object.entries({ client_id: dropboxConfig.appKey, response_type: "code", code_challenge: challenge, code_challenge_method: "S256", token_access_type: "offline" })
+      .forEach(([k, v]) => u.searchParams.set(k, v));
+    window.open(u.toString(), "_blank");
+  };
+  store.finishCode = async (code) => {
+    const verifier = localStorage.getItem(SS_VERIFIER);
+    if (!verifier) throw new Error("toque antes em \"Abrir o Dropbox para gerar o código\"");
+    const j = await tokenRequest({ grant_type: "authorization_code", code, code_verifier: verifier });
+    localStorage.removeItem(SS_VERIFIER);
+    lsSet(LS_TOKEN, { refresh: j.refresh_token, access: j.access_token, exp: Date.now() + (j.expires_in || 14400) * 1000, account: j.account_id });
+  };
   if (!tok?.refresh) { store.needsLogin = true; return store; }
 
   async function access() {

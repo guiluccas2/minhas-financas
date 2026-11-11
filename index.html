@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Minhas Finanças</title>
 <meta name="theme-color" content="#0d6b59">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -280,16 +284,87 @@ table.metas .field { padding: 6px 8px; }
 .login .card { max-width: 440px; text-align: center; justify-items: center; padding: 32px; }
 
 @media (max-width: 1100px) { .grid3 { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .grid3 > :first-child { grid-column: 1 / -1; } .grid21 { grid-template-columns: minmax(0,1fr); } }
+/* ---------- celular ---------- */
+.bnav, .mtop-sync { display: none; }
 @media (max-width: 860px) {
   .shell { grid-template-columns: minmax(0,1fr); }
-  .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; }
-  .side .grp { display: none; } .brand { padding: 0 8px 0 0; }
-  .side .foot { margin: 0; display: flex; gap: 8px; align-items: center; }
-  .main { padding: 14px 14px 120px; }
-  .grid3, .grid2, .hello { grid-template-columns: minmax(0,1fr); }
+  .side { display: none; }
+  .main { padding: calc(env(safe-area-inset-top, 0px) + 12px) max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 96px) max(14px, env(safe-area-inset-left, 0px)); gap: 14px; }
+  .grid3, .grid2, .grid21, .hello { grid-template-columns: minmax(0,1fr); }
+  .grid3 > :first-child { grid-column: auto; }
+  .hello { grid-template-columns: 1fr 1fr; } .hello .kpi:last-child { grid-column: 1 / -1; }
   .cgrid { grid-template-columns: 1fr 1fr; }
   .row2 { grid-template-columns: 1fr; }
+  .card { padding: 14px; border-radius: 14px; }
+  .top { gap: 8px; } .top h1 { font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
+  .month .lbl { width: 150px; font-size: .92rem; }
+  .mtop-sync { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .mtop-sync.saved { background: var(--good); } .mtop-sync.saving { background: var(--warn); } .mtop-sync.offline, .mtop-sync.error, .mtop-sync.local { background: var(--bad); }
+  input, select, textarea, .field { font-size: 16px; }             /* evita zoom automático no iPhone */
+  .fab { display: none; }
+  .bnav { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line);
+    padding: 6px max(6px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 6px) max(6px, env(safe-area-inset-left, 0px)); }
+  .bnav a, .bnav button { border: 0; background: none; display: grid; justify-items: center; gap: 2px; padding: 4px 2px; color: var(--muted); font-size: .68rem; font-weight: 600; text-decoration: none; }
+  .bnav svg { width: 22px; height: 22px; }
+  .bnav [aria-current="page"] { color: var(--accent); }
+  .bnav .plus span { width: 48px; height: 48px; margin-top: -18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 1.7rem; line-height: 1; box-shadow: var(--shadow); }
+  .sheet { left: 0; right: 0; top: auto; bottom: 0; transform: none; width: 100%; max-height: 92dvh; border-radius: 20px 20px 0 0;
+    padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px)); }
+  .bigmoney input { font-size: 2rem; }
+  .sheet-foot .right { width: 100%; } .sheet-foot .right .btn { flex: 1; }
+  .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+  /* lançamentos em lista no celular */
+  table.txt thead { display: none; }
+  table.txt tr:not(.dayrow) { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "date date" "title val" "cat cat" "src src"; gap: 1px 10px; padding: 10px 2px; border-top: 1px solid var(--line); }
+  table.txt tr.dayrow { display: table-row; }
+  table.txt td { border: 0; padding: 0; }
+  table.txt .c-date { grid-area: date; font-size: .74rem; color: var(--muted); }
+  table.txt .c-title { grid-area: title; min-width: 0; } table.txt .c-title .note { max-width: 100%; }
+  table.txt .c-val { grid-area: val; align-self: start; }
+  table.txt .c-cat { grid-area: cat; font-size: .8rem; color: var(--muted); }
+  table.txt .c-src { grid-area: src; font-size: .8rem; color: var(--muted); }
+  table.txt .c-src .src { font-size: .8rem; }
+  table.txt .dayrow td { padding: 6px 4px; }
+  .hbars { grid-template-columns: minmax(80px, 110px) minmax(0,1fr) auto; gap: 8px; }
+  .menu-list { display: grid; gap: 2px; }
+  /* tabelas viram cartões empilhados */
+  table.stack thead { display: none; }
+  table.stack tr { display: block; padding: 10px 0; border-top: 1px solid var(--line); }
+  table.stack tbody tr:first-child { border-top: 0; }
+  table.stack td { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 0; padding: 3px 0; text-align: right; white-space: normal; }
+  table.stack td::before { content: attr(data-label); color: var(--muted); font-size: .78rem; text-align: left; font-weight: 500; }
+  table.stack td:first-child { font-size: 1rem; text-align: left; justify-content: flex-start; }
+  table.stack td:first-child::before { content: none; }
+  table.stack td:empty, table.stack td.hide-m { display: none; }
+  table.stack tfoot tr { border-top: 2px solid var(--line); }
+  table.stack tr.subrow { padding-left: 14px; }
+  table.stack tr.sel td { background: none; } table.stack tr.sel { background: var(--accent-soft); border-radius: 10px; padding-inline: 8px; }
+  table.stack .usebar { min-width: 0; width: 60%; }
+  /* contas fixas pendentes */
+  table.pendt tr { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "date date" "title val" "src src" "act act"; gap: 2px 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  table.pendt tr:first-child { border-top: 0; }
+  table.pendt td { border: 0; padding: 0; }
+  table.pendt .p-date { grid-area: date; font-size: .76rem; color: var(--muted); } table.pendt .p-date small { display: inline; margin-left: 6px; }
+  table.pendt .p-title { grid-area: title; min-width: 0; } table.pendt .p-val { grid-area: val; } table.pendt .p-src { grid-area: src; font-size: .8rem; }
+  table.pendt .p-act { grid-area: act; } table.pendt .p-act .actions { justify-content: stretch !important; } table.pendt .p-act .btn { flex: 1; }
+  /* faixas que deslizam para o lado em vez de quebrar em várias linhas */
+  .filters, .seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .filters::-webkit-scrollbar, .seg::-webkit-scrollbar { display: none; }
+  .filters .chip, .seg button { white-space: nowrap; flex: none; }
+  .kv { flex-wrap: wrap; }
+  .btn { white-space: normal; }
+  .card-head { align-items: flex-start; }
+  .top .month { width: 100%; } .top .month .lbl { flex: 1; width: auto; }
+  .qhint { display: none; }
+  .parse { min-height: 0; } .parse:empty { display: none; }
+  .search .field { max-width: none; }
+  /* botão salvar sempre visível na janela de lançar */
+  .sheet-foot { position: sticky; bottom: calc(-16px - env(safe-area-inset-bottom, 0px)); background: var(--surface); margin: 0 -16px calc(-16px - env(safe-area-inset-bottom, 0px)); padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px); border-top: 1px solid var(--line); z-index: 2; }
+  .goalbody { grid-template-columns: 1fr; justify-items: start; }
+  .newrow { grid-template-columns: 1fr 1fr; } .newrow .field:first-child { grid-column: 1 / -1; }
+  .catrow { grid-template-columns: minmax(0,1fr) 112px 72px; }
 }
+.menu-list .nav { font-size: 1rem; padding: 12px 10px; }
 @media (prefers-reduced-motion: no-preference) { .sheet { animation: pop .16s ease-out; } @keyframes pop { from { opacity: 0; } } }
 </style>
 </head>

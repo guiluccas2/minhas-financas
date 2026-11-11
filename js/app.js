@@ -71,6 +71,7 @@ const ICONS = {
   repeat: "M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3",
   flag: "M5 21V4M5 4h11l-2 4 2 4H5",
   pie: "M21 12A9 9 0 1 1 12 3v9zM14 3.3A9 9 0 0 1 20.7 10H14z",
+  menu: "M4 6h16M4 12h16M4 18h16",
   gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[n]}"/></svg>`;
@@ -240,7 +241,17 @@ function renderLogin() {
     <div class="brand" style="padding:0"><i>R$</i>Minhas Finanças</div>
     <p class="muted" style="margin:0">Conecte sua conta do Dropbox, onde seus dados ficam guardados. Você só precisa fazer isso uma vez em cada aparelho.</p>
     <button class="btn" id="signin">Conectar ao Dropbox</button>
+    <details id="codeBox" ${navigator.standalone ? "open" : ""} style="width:100%;text-align:left"><summary class="small muted" style="cursor:pointer">${navigator.standalone ? "No iPhone, conecte com um código:" : "Não voltou conectado (comum no iPhone)? Conectar com um código"}</summary>
+      <div style="display:grid;gap:8px;margin-top:10px">
+        <div class="small">1. <button class="link" id="codeOpen">Abrir o Dropbox para gerar o código</button><br>2. Autorize, copie o código que o Dropbox mostrar e cole aqui:</div>
+        <div class="actions"><input class="field" id="codeIn" placeholder="Código do Dropbox" autocomplete="off" style="flex:1"><button class="btn sm" id="codeGo">Conectar</button></div>
+      </div></details>
     <div class="err" id="loginErr"></div></div></div>`;
+  $("#codeOpen").onclick = () => S.store.startCode().catch(e => { $("#loginErr").textContent = e.message; });
+  $("#codeGo").onclick = async () => {
+    const code = $("#codeIn").value.trim(); if (!code) return $("#codeIn").focus();
+    try { await S.store.finishCode(code); location.reload(); } catch (e) { $("#loginErr").textContent = "Não foi possível conectar com esse código: " + (e?.message || e) + ". Gere um código novo e tente de novo."; }
+  };
   $("#signin").onclick = async () => {
     try { await S.store.signIn(); } catch (e) { $("#loginErr").textContent = "Não foi possível conectar: " + (e?.message || e); }
   };
@@ -284,16 +295,27 @@ function render() {
         </div>
       </div>
     </aside>
-    <main class="main">${body}</main></div>`;
+    <main class="main">${body}</main>
+    <nav class="bnav" aria-label="Navegação">
+      <a href="#inicio" aria-current="${S.view === "inicio" ? "page" : "false"}">${icon("home")}Início</a>
+      <a href="#lancamentos" aria-current="${S.view === "lancamentos" ? "page" : "false"}">${icon("list")}Lançamentos</a>
+      <button class="plus" data-act="new-tx" aria-label="Novo lançamento"><span>+</span></button>
+      <a href="#metas" aria-current="${S.view === "metas" ? "page" : "false"}">${icon("target")}Metas</a>
+      <button data-act="menu" aria-current="${["inicio", "lancamentos", "metas"].includes(S.view) ? "false" : "page"}">${icon("menu")}Mais</button>
+    </nav></div>`;
   $("#fab").hidden = false;
   if (aeId) { const n = document.getElementById(aeId); if (n) { n.focus(); if (sel && n.value === sel[2]) try { n.setSelectionRange(sel[0], sel[1]); } catch {} } }
+  root.querySelectorAll("table.stack").forEach(t => {
+    const heads = [...t.querySelectorAll("thead th")].map(th => th.textContent.trim());
+    t.querySelectorAll("tbody tr, tfoot tr").forEach(tr => { let i = 0; for (const td of tr.children) { if (!td.dataset.label && heads[i]) td.dataset.label = heads[i]; i += td.colSpan || 1; } });
+  });
   if (S.view === "historico") wireHistChart();
   if (S.view === "metas") wireCatChart();
   if (S.view === "inicio") updateQuickPreview();
 }
 
 function topBar(title, withMonth = true) {
-  return `<div class="top"><h1>${title}</h1>${withMonth ? `<div class="month">
+  return `<div class="top"><h1><span class="mtop-sync ${S.sync}" title="${esc({ saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet", error: "Erro ao sincronizar", local: "Modo local" }[S.sync] || "")}"></span>${title}</h1>${withMonth ? `<div class="month">
     <div class="arrows"><button data-act="month" data-k="-1" aria-label="Mês anterior">‹</button><button data-act="month" data-k="1" aria-label="Próximo mês">›</button></div>
     <label class="lbl"><span>${esc(monthName(S.month))}</span>▾<input type="month" id="monthPick" value="${S.month}" aria-label="Escolher mês"></label>
     <button class="today ${S.month !== curMonth() ? "show" : ""}" data-act="month-today">Hoje</button></div>` : ""}</div>`;
@@ -542,11 +564,11 @@ function txTableHTML(list, groupByDay) {
     let pre = "";
     if (groupByDay && t.d !== lastDay) { lastDay = t.d; pre = `<tr class="dayrow"><td colspan="${groupByDay ? 4 : 5}">${dm(t.d)} · ${esc(weekday(t.d))}</td></tr>`; }
     return pre + `<tr class="click" data-act="edit" data-id="${esc(t.id)}">
-      ${groupByDay ? "" : `<td class="num">${dm(t.d)}</td>`}
-      <td><b>${esc(txTitle(t))}</b>${t.pn > 1 ? `<span class="tag">${t.pi}/${t.pn}</span>` : ""}${t.o ? `<span class="note">${esc(t.o)}</span>` : ""}</td>
-      <td>${catLabel(t)}</td><td>${srcHTML(t)}</td><td class="r">${amtHTML(t)}</td></tr>`;
+      ${groupByDay ? "" : `<td class="num c-date">${dm(t.d)}</td>`}
+      <td class="c-title"><b>${esc(txTitle(t))}</b>${t.pn > 1 ? `<span class="tag">${t.pi}/${t.pn}</span>` : ""}${t.o ? `<span class="note">${esc(t.o)}</span>` : ""}</td>
+      <td class="c-cat">${catLabel(t)}</td><td class="c-src">${srcHTML(t)}</td><td class="r c-val">${amtHTML(t)}</td></tr>`;
   }).join("");
-  return `<div class="tablewrap"><table><thead><tr>${groupByDay ? "" : "<th>Data</th>"}<th>Onde / descrição</th><th>Categoria</th><th>Conta / cartão</th><th class="r">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="tablewrap"><table class="txt"><thead><tr>${groupByDay ? "" : "<th>Data</th>"}<th>Onde / descrição</th><th>Categoria</th><th>Conta / cartão</th><th class="r">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // =====================================================================
@@ -616,7 +638,7 @@ function viewContas() {
   return `${topBar("Contas")}
   <section class="card">
     <div class="card-head"><h2>Saldos das contas</h2><button class="btn sm" data-act="acc-edit" data-id="new">+ Nova conta</button></div>
-    ${rows ? `<div class="tablewrap"><table><thead><tr><th>Conta</th><th>Tipo</th><th class="r">Entradas no mês</th><th class="r">Saídas no mês</th><th class="r">${isPast ? "Saldo no fim do mês" : "Saldo atual"}</th><th class="r">Previsto fim do mês</th></tr></thead>
+    ${rows ? `<div class="tablewrap"><table class="stack"><thead><tr><th>Conta</th><th>Tipo</th><th class="r">Entradas no mês</th><th class="r">Saídas no mês</th><th class="r">${isPast ? "Saldo no fim do mês" : "Saldo atual"}</th><th class="r">Previsto fim do mês</th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total</td><td class="r in-c">${money(tIn)}</td><td class="r">${money(tOut)}</td><td class="r">${moneyS(tBal)}</td><td class="r">${moneyS(tEnd)}</td></tr></tfoot></table></div>
       <div class="muted small">Saídas incluem débitos, Pix, transferências enviadas e pagamentos de fatura. Compras no crédito só saem da conta quando a fatura é paga. Clique numa conta para editar.</div>`
     : `<div class="empty"><h3>Nenhuma conta cadastrada</h3><span>Clique em <b>+ Nova conta</b> e informe o saldo de hoje.</span></div>`}
@@ -718,7 +740,7 @@ function viewHist() {
   <section class="card"><div class="card-head"><h2>Receitas e despesas por mês</h2><div class="legend"><span><i class="sw" style="background:var(--in)"></i>Receitas</span><span><i class="sw" style="background:var(--out)"></i>Despesas</span></div></div>
     <div class="chart" id="histChart"><svg viewBox="0 0 720 260"></svg><div class="tip" id="tip" hidden></div></div></section>
   <section class="card"><div class="card-head"><h2>Mês a mês</h2><button class="btn ghost sm" data-act="export-csv">Exportar CSV (Excel)</button></div>
-    <div class="tablewrap"><table><thead><tr><th>Mês</th><th class="r">Receitas</th><th class="r">Despesas</th><th class="r">Resultado</th><th class="r">Da meta</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="tablewrap"><table class="stack"><thead><tr><th>Mês</th><th class="r">Receitas</th><th class="r">Despesas</th><th class="r">Resultado</th><th class="r">Da meta</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="muted small">Clique num mês para abrir o início naquele mês.</div></section>`;
 }
 function niceMax(v) { if (v <= 0) return 100000; const e = Math.pow(10, Math.floor(Math.log10(v))); const f = v / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; }
@@ -850,13 +872,14 @@ function viewConfig() {
         <span class="actions"><button class="btn ghost sm" data-act="sync-now">Sincronizar agora</button><button class="btn ghost sm" data-act="signout">Desconectar</button></span></div>`
       : `<div class="info warn">Modo local: os dados estão só neste navegador. Para salvar no Dropbox e abrir em qualquer aparelho, configure a appKey seguindo o arquivo LEIA-ME do projeto.</div>`}
     <div class="actions">
-      <button class="btn ghost sm" data-act="import">Importar dados da versão anterior (financas-dados.json)</button>
+      <button class="btn ghost sm" data-act="import">Restaurar uma cópia de segurança</button>
       <button class="btn ghost sm" data-act="export-json">Baixar cópia de segurança</button>
       <button class="btn ghost sm" data-act="export-csv">Exportar CSV (Excel)</button>
     </div>
-    <div class="muted small">A importação junta os lançamentos do arquivo com os que já estão aqui, sem apagar nada. Lançamentos repetidos (mesmo código) são substituídos.</div></section>
+    <div class="muted small">Restaurar junta os dados do arquivo (uma cópia de segurança baixada aqui, ou o arquivo da versão anterior) com os que já estão no sistema, sem apagar nada.</div></section>
   <section class="card"><h2>Instalar como aplicativo</h2>
     <div class="small">No Google Chrome: menu <b>⋮</b> → <b>Transmitir, salvar e compartilhar</b> → <b>Instalar página como app</b> (ou o ícone de instalar na barra de endereço). No Microsoft Edge: menu <b>⋯</b> → <b>Aplicativos</b> → <b>Instalar este site como um aplicativo</b>. O sistema ganha ícone no menu Iniciar e abre em janela própria. Para fixar na barra de tarefas, clique com o botão direito no ícone aberto e escolha <b>Fixar na barra de tarefas</b>.</div>
+    <div class="small"><b>No celular Android</b> (Chrome): abra o site, toque no menu <b>⋮</b> → <b>Instalar app</b> (ou <b>Adicionar à tela inicial</b>). <b>No iPhone</b> (Safari): toque em <b>Compartilhar</b> (quadrado com seta para cima) → <b>Adicionar à Tela de Início</b> → <b>Adicionar</b>. O ícone aparece junto com os outros apps.</div>
     ${S.installPrompt ? `<div><button class="btn sm" data-act="install">Instalar agora</button></div>` : ""}</section>
   <section class="card"><h2>Apagar todos os dados</h2>
     <div class="muted small" style="margin-top:-6px">Apaga lançamentos, contas, cartões, categorias, contas fixas e objetivos, para começar do zero. Não dá para desfazer${S.store.mode === "cloud" ? " (o Dropbox guarda versões anteriores do arquivo por 30 dias)" : ""}.</div>
@@ -868,8 +891,8 @@ function viewConfig() {
 // =====================================================================
 function quickHTML() {
   return `<section class="quick"><form class="qbox" data-form="quick" autocomplete="off">
-    <input id="quickInput" placeholder="Lançamento rápido: padaria 12,50 ontem nubank" aria-label="Lançamento rápido"><button class="btn" type="submit">Lançar</button></form>
-    <div class="parse" id="qprev"><span class="muted">Ex.: <b>mercado 230</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b>. Para parcelas e descrição, use <b>+ Lançar</b>.</span></div></section>`;
+    <input id="quickInput" placeholder="${matchMedia("(max-width: 860px)").matches ? "Rápido: padaria 12,50 ontem" : "Lançamento rápido: padaria 12,50 ontem nubank"}" aria-label="Lançamento rápido"><button class="btn" type="submit">Lançar</button></form>
+    <div class="parse" id="qprev"><span class="muted qhint">Ex.: <b>mercado 230</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b>. Para parcelas e descrição, use <b>+ Lançar</b>.</span></div></section>`;
 }
 const PAY_WORDS = { pix: "pix", debito: "debito", dinheiro: "dinheiro", especie: "dinheiro", credito: "credito", cartao: "credito", boleto: "boleto", transferencia: "transferencia", ted: "transferencia", doc: "transferencia" };
 function defaultDate() { return S.month === curMonth() ? todayISO() : S.month + "-01"; }
@@ -938,7 +961,7 @@ function parseQuick(text) {
 function updateQuickPreview() {
   const box = $("#qprev"), inp = $("#quickInput"); if (!box || !inp) return;
   const q = parseQuick(inp.value);
-  if (!q) { box.innerHTML = `<span class="muted">Ex.: <b>mercado 230</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b>. Para parcelas e descrição, use <b>+ Lançar</b>.</span>`; return; }
+  if (!q) { box.innerHTML = `<span class="muted qhint">Ex.: <b>mercado 230</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b>. Para parcelas e descrição, use <b>+ Lançar</b>.</span>`; return; }
   const pills = [];
   pills.push(q.v ? `<span class="pill ${q.t === "in" ? "in" : "out"}">${q.t === "in" ? "+" : "−"} ${money(q.v)}</span>` : `<span class="pill warn">falta o valor</span>`);
   pills.push(q.cat ? `<span class="pill">${esc(q.cat.name)}${q.sub ? " › " + esc(q.sub.name) : ""}</span>` : `<span class="pill warn">categoria não reconhecida</span>`);
@@ -998,6 +1021,7 @@ function accChips(attr, sel, label) {
 function renderSheet() {
   const f = sheetState; if (!f) return;
   if (f.kind === "pay") return renderPaySheet();
+  if (f.kind === "menu") return renderMenuSheet();
   const orig = f.id ? S.tx.find(t => t.id === f.id) : null;
   const isInst = orig && orig.pn > 1;
   const cats = activeCats(f.t === "transfer" ? "out" : f.t);
@@ -1045,6 +1069,14 @@ function renderSheet() {
         : `<span class="actions"><button class="btn ghost" data-act="s-del">Apagar</button><button class="btn ghost" data-act="s-dup">Duplicar</button></span>`) : ""}
       <div class="right">${f.id ? "" : `<button class="btn ghost" data-act="s-save-more">Salvar e lançar outro</button>`}<button class="btn" data-act="s-save">Salvar</button></div>
     </div>`;
+}
+function renderMenuSheet() {
+  const th = st().prefs.theme;
+  const syncTxt = { saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" }[S.sync] || "";
+  sheet.innerHTML = `<div class="sheet-head"><h2>Menu</h2><button class="iconbtn" data-act="close" aria-label="Fechar">✕</button></div>
+    <div class="menu-list">${Object.keys(VIEWS).map(v => `<a class="nav" href="#${v}" data-act="close" aria-current="${S.view === v ? "page" : "false"}">${icon(VIEWS[v][1])}${VIEWS[v][0]}</a>`).join("")}</div>
+    <div class="theme" role="group" aria-label="Tema"><button data-act="theme" data-v="light" aria-pressed="${th === "light"}">Claro</button><button data-act="theme" data-v="dark" aria-pressed="${th === "dark"}">Escuro</button><button data-act="theme" data-v="auto" aria-pressed="${th === "auto"}">Auto</button></div>
+    <div class="sync ${S.sync}"><i></i>${esc(syncTxt)}</div>`;
 }
 function renderPaySheet() {
   const f = sheetState, k = cardById(f.k), info = cardInfo(k);
@@ -1199,7 +1231,7 @@ function viewMetas() {
     <div class="card-head"><h2>Metas por categoria</h2>
       <div class="actions"><span class="muted small">Sugestão pela média de</span><div class="seg">${[3, 6, 12].map(k => `<button data-act="avg-n" data-v="${k}" aria-pressed="${n === k}">${k} meses</button>`).join("")}</div>
       ${noGoalWithSugg.length ? `<button class="btn ghost sm" data-act="use-all-sugg">Usar sugestão nas ${noGoalWithSugg.length} sem meta</button>` : ""}</div></div>
-    <div class="tablewrap"><table class="metas"><thead><tr><th>Categoria</th><th class="r">Meta</th><th class="r">Gasto</th><th class="r">Restante</th><th>Uso</th><th class="r">Previsto</th><th class="r">Média ${n}m</th><th class="r">Sugestão</th><th></th></tr></thead>
+    <div class="tablewrap"><table class="metas stack"><thead><tr><th>Categoria</th><th class="r">Meta</th><th class="r">Gasto</th><th class="r">Restante</th><th>Uso</th><th class="r">Previsto</th><th class="r">Média ${n}m</th><th class="r">Sugestão</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="r">${money(tGoal)}</td><td class="r">${money(tSpent)}</td><td class="r">${moneyS(tGoal - tSpent)}</td><td>${usePill(tSpent, tGoal)}</td><td class="r">${tProj !== tSpent ? money(tProj) : ""}</td><td></td><td></td><td></td></tr></tfoot></table></div>
     <div class="muted small">A sugestão é a média dos últimos ${n} meses completos (sem contar meses antes do seu primeiro lançamento), arredondada para cima. Clique numa sugestão para usá-la como meta, ou digite a meta que quiser. Clique no nome para ver as subcategorias.</div>
   </section>
@@ -1213,7 +1245,7 @@ function catDetailHTML(c) {
   return `<section class="card" id="catdetail">
     <div class="card-head"><h2>${esc(c.name)}: últimos 12 meses</h2><div class="legend"><span><i class="sw" style="background:var(--out)"></i>Gasto</span>${c.budget ? `<span><i class="sw" style="background:var(--fg);height:2px"></i>Meta ${money(c.budget)}</span>` : ""}${avg !== null ? `<span><i class="sw" style="background:var(--accent);height:2px"></i>Média ${n}m ${money(avg)}</span>` : ""}<button class="small-btn" data-act="meta-detail" data-id="">Fechar</button></div></div>
     <div class="chart" id="catChart" data-cat="${esc(c.id)}">${catBarsSVG(data, 720, c.budget, avg)}<div class="tip" id="tip2" hidden></div></div>
-    ${subs.length ? `<div class="tablewrap"><table><thead><tr><th>Subcategoria</th><th class="r">Este mês</th><th class="r">Média 3m</th><th class="r">Média 6m</th><th class="r">Média 12m</th></tr></thead><tbody>
+    ${subs.length ? `<div class="tablewrap"><table class="stack"><thead><tr><th>Subcategoria</th><th class="r">Este mês</th><th class="r">Média 3m</th><th class="r">Média 6m</th><th class="r">Média 12m</th></tr></thead><tbody>
       ${subs.map(r => `<tr><td>${esc(r.x.name)}</td><td class="r">${money(r.cur)}</td><td class="r">${r.a3 === null ? "—" : money(r.a3)}</td><td class="r">${r.a6 === null ? "—" : money(r.a6)}</td><td class="r">${r.a12 === null ? "—" : money(r.a12)}</td></tr>`).join("")}</tbody></table></div>` : ""}
   </section>`;
 }
@@ -1284,7 +1316,7 @@ function viewAnalise() {
     <div class="card-head"><h2>Média por categoria</h2>
       <div class="actions"><div class="seg"><button data-act="an-type" data-v="out" aria-pressed="${type === "out"}">Despesas</button><button data-act="an-type" data-v="in" aria-pressed="${type === "in"}">Receitas</button></div>
       <span class="muted small">Comparar com a média de</span><div class="seg">${[3, 6, 12].map(k => `<button data-act="avg-n" data-v="${k}" aria-pressed="${n === k}">${k} meses</button>`).join("")}</div></div></div>
-    ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Categoria</th><th class="r cap">${esc(monthName(m, { month: "short", year: "numeric" }))}</th><th class="r">Média 3m</th><th class="r">Média 6m</th><th class="r">Média 12m</th><th class="r">${type === "out" ? "Meta" : "Previsto"}</th><th class="r">vs. média ${n}m</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
+    ${rows.length ? `<div class="tablewrap"><table class="stack"><thead><tr><th>Categoria</th><th class="r cap">${esc(monthName(m, { month: "short", year: "numeric" }))}</th><th class="r">Média 3m</th><th class="r">Média 6m</th><th class="r">Média 12m</th><th class="r">${type === "out" ? "Meta" : "Previsto"}</th><th class="r">vs. média ${n}m</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
       : `<div class="empty"><span>Ainda não há lançamentos suficientes.</span></div>`}
     <div class="muted small">As médias usam os meses completos antes de <span class="cap">${esc(monthName(m))}</span>${firstM ? `, a partir do seu primeiro lançamento (${esc(monthName(firstM))})` : ""}. Clique numa categoria para ver as subcategorias.</div>
   </section>
@@ -1316,10 +1348,10 @@ const recTitle = (r) => r.n || subOf(catById(r.c), r.s)?.name || catById(r.c)?.n
 function pendingHTML(m, limit) {
   const list = recPending(m); if (!list.length) return "";
   const today = todayISO();
-  return `<div class="tablewrap"><table><tbody>${list.slice(0, limit || 999).map(({ r, d }) => `<tr>
-    <td class="num">${dm(d)}${d < today ? `<small class="out-c">atrasada</small>` : ""}</td>
-    <td><b>${esc(recTitle(r))}</b><small>${catLabel(r)}</small></td><td>${srcHTML(r)}</td><td class="r">${amtHTML(r)}</td>
-    <td class="r"><span class="actions" style="justify-content:flex-end;flex-wrap:nowrap"><button class="small-btn" data-act="rec-edit-eff" data-id="${esc(r.id)}" data-m="${m}" title="Abrir para mudar valor ou data antes de efetivar">Alterar</button><button class="btn sm" data-act="rec-eff" data-id="${esc(r.id)}" data-m="${m}">Efetivar</button></span></td></tr>`).join("")}</tbody></table></div>
+  return `<div class="tablewrap"><table class="pendt"><tbody>${list.slice(0, limit || 999).map(({ r, d }) => `<tr>
+    <td class="num p-date">${dm(d)}${d < today ? `<small class="out-c">atrasada</small>` : ""}</td>
+    <td class="p-title"><b>${esc(recTitle(r))}</b><small>${catLabel(r)}</small></td><td class="p-src">${srcHTML(r)}</td><td class="r p-val">${amtHTML(r)}</td>
+    <td class="r p-act"><span class="actions" style="justify-content:flex-end;flex-wrap:nowrap"><button class="small-btn" data-act="rec-edit-eff" data-id="${esc(r.id)}" data-m="${m}" title="Abrir para mudar valor ou data antes de efetivar">Alterar</button><button class="btn sm" data-act="rec-eff" data-id="${esc(r.id)}" data-m="${m}">Efetivar</button></span></td></tr>`).join("")}</tbody></table></div>
     ${list.length > (limit || 999) ? `<a class="link" href="#fixas">+ ${list.length - limit} outras</a>` : ""}`;
 }
 function viewFixas() {
@@ -1337,7 +1369,7 @@ function viewFixas() {
     else if (tx) sit = `<span class="status open">✓ Efetivada ${dm(tx.d)}${tx.v !== r.v ? " · " + money(tx.v) : ""}</span>`;
     else if ((r.skip || []).includes(m)) sit = `<span class="status paid">Pulada</span> <button class="link" data-act="rec-unskip" data-id="${esc(r.id)}">Desfazer</button>`;
     else sit = `<span class="actions" style="flex-wrap:nowrap"><button class="btn sm" data-act="rec-eff" data-id="${esc(r.id)}" data-m="${m}">Efetivar</button><button class="small-btn" data-act="rec-skip" data-id="${esc(r.id)}">Pular mês</button></span>`;
-    return `<tr class="${S.editRec === r.id ? "sel" : ""}"><td class="num">dia ${r.day}</td><td><b>${esc(recTitle(r))}</b><small>${catLabel(r)}</small></td><td>${srcHTML(r)}</td><td class="r">${amtHTML(r)}</td><td>${sit}</td>
+    return `<tr class="${S.editRec === r.id ? "sel" : ""}"><td><b>${esc(recTitle(r))}</b><small>${catLabel(r)}</small></td><td class="num">dia ${r.day}</td><td>${srcHTML(r)}</td><td class="r">${amtHTML(r)}</td><td>${sit}</td>
       <td class="r"><button class="small-btn" data-act="rec-edit" data-id="${esc(r.id)}">Editar</button></td></tr>`;
   }).join("");
   const ed = S.editRec === "new" ? { id: "new", t: "out", n: "", v: 0, c: activeCats("out")[0]?.id || "", s: "", p: "", k: "", a: st().prefs.defaultAccount || "", day: 10, start: S.month, end: "", active: true } : (st().recurring || []).find(r => r.id === S.editRec);
@@ -1350,7 +1382,7 @@ function viewFixas() {
   ${ed ? recFormHTML(ed) : ""}
   <section class="card">
     <div class="card-head"><h2>Contas que se repetem todo mês</h2><button class="btn sm" data-act="rec-edit" data-id="new">+ Nova conta fixa</button></div>
-    ${rows ? `<div class="tablewrap"><table><thead><tr><th>Dia</th><th>Conta</th><th>Pago com</th><th class="r">Valor</th><th>Situação em <span class="cap">${esc(monthName(m, { month: "short" }))}</span></th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${rows ? `<div class="tablewrap"><table class="stack"><thead><tr><th>Conta</th><th>Dia</th><th>Pago com</th><th class="r">Valor</th><th>Situação em <span class="cap">${esc(monthName(m, { month: "short" }))}</span></th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="empty"><h3>Nenhuma conta fixa</h3><span>Cadastre aluguel, condomínio, internet, academia, escola, salário… Todo mês elas aparecem para você só clicar em <b>Efetivar</b>.</span></div>`}
     <div class="muted small">Ao efetivar, o lançamento é criado com o valor cadastrado. Use <b>Alterar</b> quando o valor do mês for diferente (conta de luz, por exemplo). Também dá para marcar <b>Conta fixa</b> ao fazer um lançamento novo.</div>
   </section>`;
@@ -1484,7 +1516,7 @@ function calcGoal(id, val) {
 // events
 // =====================================================================
 const ACTIONS = {
-  theme: (el) => { st().prefs.theme = el.dataset.v; applyTheme(); saveSettings(); },
+  theme: (el) => { st().prefs.theme = el.dataset.v; applyTheme(); saveSettings(); if (sheetState?.kind === "menu") renderSheet(); },
   month: (el) => { S.month = addMonth(S.month, +el.dataset.k); S.period.start = null; S.txFilter = "all"; render(); },
   "month-today": () => { S.month = curMonth(); S.period.start = null; render(); },
   "open-month": (el) => { S.month = el.dataset.m; S.period.start = null; go("inicio"); },
@@ -1571,6 +1603,8 @@ const ACTIONS = {
   "wipe-yes": () => { S.confirmWipe = false; delTx(S.tx.map(t => t.id)); S.settings = DEFAULT_SETTINGS(); S.settings.prefs.theme = "auto"; saveSettings(); toast("Todos os dados foram apagados"); go("inicio"); },
   // sheet
   close: () => closeSheet(),
+  menu: () => { sheetState = { kind: "menu" }; renderSheet(); sheet.hidden = false; scrim.hidden = false; },
+  "new-tx": () => openSheet(),
   "s-type": (el) => { syncForm(); const f = sheetState; if (f.t !== el.dataset.v) { f.t = el.dataset.v; f.c = null; f.s = null; if (f.t === "in" && f.p === "credito") f.p = ""; } renderSheet(); },
   "s-cat": (el) => { syncForm(); const f = sheetState; if (f.c !== el.dataset.v) f.s = null; f.c = el.dataset.v; f.newSub = false; renderSheet(); },
   "s-sub": (el) => { syncForm(); sheetState.s = sheetState.s === el.dataset.v ? null : el.dataset.v; renderSheet(); },

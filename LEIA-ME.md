@@ -49,6 +49,15 @@ Os dados ficam em `Dropbox/Aplicativos/minhas-financas/minhas-financas-dados.jso
 
 O sistema ganha ícone no menu Iniciar e na área de trabalho, e abre em janela própria. Para deixar na barra de tarefas: com ele aberto, clique com o botão direito no ícone da barra e escolha **Fixar na barra de tarefas**. As atualizações chegam sozinhas.
 
+## Instalar como aplicativo no celular
+
+- **Android (Chrome):** abra o site, toque no menu **⋮** → **Instalar app** (ou **Adicionar à tela inicial**).
+- **iPhone (Safari):** abra o site no **Safari**, toque em **Compartilhar** (quadrado com seta para cima) → **Adicionar à Tela de Início** → **Adicionar**.
+
+No celular, a navegação fica numa barra embaixo (Início, Lançamentos, **+**, Metas e Mais), e os lançamentos e tabelas aparecem em formato de lista.
+
+**Conectar o Dropbox no celular:** toque em **Conectar ao Dropbox** e autorize. No iPhone, com o app instalado, às vezes o app não volta conectado depois de autorizar. Nesse caso, use **Conectar com um código**: toque em *Abrir o Dropbox para gerar o código*, autorize, copie o código que o Dropbox mostrar e cole no app.
+
 ## Telas
 
 - **Início:** resumo do mês, saldo, faturas, contas, cartões, contas fixas a efetivar, objetivos e divisão de gastos por período.
