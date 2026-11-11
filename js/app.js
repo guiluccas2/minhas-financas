@@ -243,11 +243,18 @@ function renderLogin() {
     <button class="btn" id="signin">Conectar ao Dropbox</button>
     <details id="codeBox" ${navigator.standalone ? "open" : ""} style="width:100%;text-align:left"><summary class="small muted" style="cursor:pointer">${navigator.standalone ? "No iPhone, conecte com um código:" : "Não voltou conectado (comum no iPhone)? Conectar com um código"}</summary>
       <div style="display:grid;gap:8px;margin-top:10px">
-        <div class="small">1. <button class="link" id="codeOpen">Abrir o Dropbox para gerar o código</button><br>2. Autorize, copie o código que o Dropbox mostrar e cole aqui:</div>
+        <div class="small">1. <button class="link" id="codeOpen">Abrir o Dropbox para gerar o código</button>, ou <button class="link" id="codeCopy">copiar o link</button> e abrir no Safari ou em outro navegador (até no computador)<br>2. Entre no Dropbox se pedir, toque em <b>Permitir</b> e copie o código que aparecer<br>3. Cole o código aqui:</div>
+        <input class="field small" id="codeLink" readonly hidden onclick="this.select()" aria-label="Link de autorização">
         <div class="actions"><input class="field" id="codeIn" placeholder="Código do Dropbox" autocomplete="off" style="flex:1"><button class="btn sm" id="codeGo">Conectar</button></div>
       </div></details>
     <div class="err" id="loginErr"></div></div></div>`;
   $("#codeOpen").onclick = () => S.store.startCode().catch(e => { $("#loginErr").textContent = e.message; });
+  $("#codeCopy").onclick = async () => {
+    const url = await S.store.codeUrl(false), box = $("#codeLink");
+    box.value = url; box.hidden = false;
+    try { await navigator.clipboard.writeText(url); toast("Link copiado. Abra no navegador, permita e volte com o código."); }
+    catch { box.focus(); box.select(); toast("Selecione e copie o link acima."); }
+  };
   $("#codeGo").onclick = async () => {
     const code = $("#codeIn").value.trim(); if (!code) return $("#codeIn").focus();
     try { await S.store.finishCode(code); location.reload(); } catch (e) { $("#loginErr").textContent = "Não foi possível conectar com esse código: " + (e?.message || e) + ". Gere um código novo e tente de novo."; }

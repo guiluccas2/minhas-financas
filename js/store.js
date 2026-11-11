@@ -85,14 +85,18 @@ async function dropboxStore(ui) {
     location.href = u.toString();
   };
   // conexão por código (sem redirecionamento): útil no app instalado no iPhone
-  store.startCode = async () => {
-    const { verifier, challenge } = await pkce();
-    localStorage.setItem(SS_VERIFIER, verifier);
+  // gera (ou reaproveita) o link de autorização; o código que o Dropbox mostrar só funciona neste aparelho,
+  // mas o link pode ser aberto em qualquer navegador (Safari, computador...)
+  store.codeUrl = async (fresh) => {
+    let verifier = localStorage.getItem(SS_VERIFIER);
+    if (fresh || !verifier) { verifier = (await pkce()).verifier; localStorage.setItem(SS_VERIFIER, verifier); }
+    const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
     const u = new URL("https://www.dropbox.com/oauth2/authorize");
     Object.entries({ client_id: dropboxConfig.appKey, response_type: "code", code_challenge: challenge, code_challenge_method: "S256", token_access_type: "offline" })
       .forEach(([k, v]) => u.searchParams.set(k, v));
-    window.open(u.toString(), "_blank");
+    return u.toString();
   };
+  store.startCode = async () => { window.open(await store.codeUrl(false), "_blank"); };
   store.finishCode = async (code) => {
     const verifier = localStorage.getItem(SS_VERIFIER);
     if (!verifier) throw new Error("toque antes em \"Abrir o Dropbox para gerar o código\"");
