@@ -43,7 +43,11 @@
   --warn: #f2b84b; --warn-soft: #3a2e12; --bar: #3fa98f; --track: #232e29; --grid: #222b27;
   --shadow: 0 10px 30px rgba(0,0,0,.5); color-scheme: dark; }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+body { overflow-x: clip; }
+button, a, .chip, input, select, label { touch-action: manipulation; }
+html.sheet-open, html.sheet-open body { overflow: hidden; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--f-body); }
@@ -262,6 +266,8 @@ table.metas .field { padding: 6px 8px; }
 .info .tablewrap { margin-top: 8px; }
 /* sheet */
 .scrim { position: fixed; inset: 0; background: rgba(5, 15, 12, .45); z-index: 30; }
+.scrim { touch-action: none; }
+.sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .sheet { position: fixed; z-index: 31; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(660px, calc(100% - 24px)); max-height: calc(100% - 32px); overflow-y: auto; background: var(--surface); border-radius: 20px; padding: 20px; display: grid; gap: 14px; box-shadow: var(--shadow); }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .iconbtn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; }
@@ -312,7 +318,7 @@ table.metas .field { padding: 6px 8px; }
     padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px)); }
   .bigmoney input { font-size: 2rem; }
   .sheet-foot .right { width: 100%; } .sheet-foot .right .btn { flex: 1; }
-  .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+  .toast { top: calc(env(safe-area-inset-top, 0px) + 10px); bottom: auto; }
   /* lançamentos em lista no celular */
   table.txt thead { display: none; }
   table.txt tr:not(.dayrow) { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "date date" "title val" "cat cat" "src src"; gap: 1px 10px; padding: 10px 2px; border-top: 1px solid var(--line); }
@@ -348,9 +354,21 @@ table.metas .field { padding: 6px 8px; }
   table.pendt .p-title { grid-area: title; min-width: 0; } table.pendt .p-val { grid-area: val; } table.pendt .p-src { grid-area: src; font-size: .8rem; }
   table.pendt .p-act { grid-area: act; } table.pendt .p-act .actions { justify-content: stretch !important; } table.pendt .p-act .btn { flex: 1; }
   /* faixas que deslizam para o lado em vez de quebrar em várias linhas */
-  .filters, .seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
-  .filters::-webkit-scrollbar, .seg::-webkit-scrollbar { display: none; }
-  .filters .chip, .seg button { white-space: nowrap; flex: none; }
+  /* filtros: uma faixa que desliza só dentro dela, sem arrastar a página */
+  .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; overscroll-behavior-x: contain; }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters .chip { white-space: nowrap; flex: none; }
+  /* abas: largura fixa, todas visíveis, não deslizam */
+  .seg { display: flex; flex-wrap: nowrap; width: 100%; overflow: hidden; }
+  .seg button { flex: 1 1 0; min-width: 0; white-space: normal; padding: 7px 3px; font-size: .78rem; line-height: 1.15; text-align: center; }
+  .card-head .actions { width: 100%; }
+  /* listas e tabelas empilhadas não rolam para os lados */
+  .tablewrap:has(table.stack), .tablewrap:has(table.txt), .tablewrap:has(table.pendt) { overflow-x: visible; }
+  table.txt, table.stack, table.pendt { table-layout: fixed; width: 100%; }
+  table.txt tr.dayrow td { display: block; }
+  /* teclado aberto: esconde a barra de baixo para não "pular" sobre os campos */
+  html.typing .bnav { display: none; }
+  html.typing .main { padding-bottom: 24px; }
   .kv { flex-wrap: wrap; }
   .btn { white-space: normal; }
   .card-head { align-items: flex-start; }

@@ -231,7 +231,10 @@ const ui = { error: (msg) => toast(msg) };
   catch (e) { root.innerHTML = `<div class="login"><div class="card"><h2>Não foi possível iniciar</h2><p class="muted">${esc(e?.message || e)}</p><p class="small muted">Confira a appKey em js/config.js e a sua conexão com a internet.</p></div></div>`; return; }
   if (S.store.needsLogin) { renderLogin(); return; }
   readHash();
-  await S.store.start(({ settings, tx, sync }) => {
+  await S.store.start(({ settings, tx, sync, ver }) => {
+    S.sync = sync;
+    if (S.loaded && ver !== undefined && ver === S.ver) { updateSyncUI(); return; }   // só o status mudou: não redesenha
+    S.ver = ver;
     S.settings = normalizeSettings(settings); sortAll();
     S.tx = tx.filter(t => t && t.d).sort((a, b) => b.d.localeCompare(a.d) || (b.at || 0) - (a.at || 0));
     S.sync = sync; S.loaded = true;
@@ -281,11 +284,23 @@ function readHash() { const h = location.hash.slice(1); S.view = VIEWS[h] ? h : 
 addEventListener("hashchange", () => { readHash(); render(); scrollTo(0, 0); });
 const go = (v) => { if (location.hash !== "#" + v) location.hash = v; else { readHash(); render(); } };
 
+const SYNC_TXT = { saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" };
+function updateSyncUI() {
+  document.querySelectorAll(".sync").forEach(el => { el.className = "sync " + S.sync; el.innerHTML = `<i></i>${esc(SYNC_TXT[S.sync] || "")}`; });
+  document.querySelectorAll(".mtop-sync").forEach(el => { el.className = "mtop-sync " + S.sync; el.title = SYNC_TXT[S.sync] || ""; });
+}
+let lastRenderView = null;
 function render() {
   if (!S.loaded) return;
   const ae = document.activeElement, aeId = ae && root.contains(ae) ? ae.id : null;
   const sel = aeId && "selectionStart" in ae ? [ae.selectionStart, ae.selectionEnd, ae.value] : null;
-  const syncTxt = { saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste navegador)" }[S.sync] || "";
+  // guarda o que a pessoa está digitando (campos alterados e ainda não salvos) para não se perder ao redesenhar
+  const typed = {};
+  root.querySelectorAll("input[id], textarea[id]").forEach(el => {
+    if (el.type === "checkbox" || el.type === "radio" || el.type === "file" || el.id === "search") return;
+    if (el.value !== el.defaultValue) typed[el.id] = { v: el.value, def: el.defaultValue };
+  });
+  const sameView = lastRenderView === S.view, sy = scrollY;
   const nav = (v) => `<a class="nav" href="#${v}" aria-current="${S.view === v ? "page" : "false"}">${icon(VIEWS[v][1])}${VIEWS[v][0]}</a>`;
   const th = st().prefs.theme;
   const body = { inicio: viewInicio, lancamentos: viewLanc, contas: viewContas, cartoes: viewCartoes, metas: viewMetas, fixas: viewFixas, objetivos: viewObjetivos, analise: viewAnalise, historico: viewHist, cadastros: viewCats, config: viewConfig }[S.view]();
@@ -297,7 +312,7 @@ function render() {
       <div class="grp">Analisar</div>${nav("analise")}${nav("historico")}
       <div class="grp">Ajustes</div>${nav("cadastros")}${nav("config")}
       <div class="foot">
-        <div class="sync ${S.sync}"><i></i>${esc(syncTxt)}</div>
+        <div class="sync ${S.sync}"><i></i>${esc(SYNC_TXT[S.sync] || "")}</div>
         <div class="theme" role="group" aria-label="Tema">
           <button data-act="theme" data-v="light" aria-pressed="${th === "light"}">Claro</button>
           <button data-act="theme" data-v="dark" aria-pressed="${th === "dark"}">Escuro</button>
@@ -314,7 +329,10 @@ function render() {
       <button data-act="menu" aria-current="${["inicio", "lancamentos", "metas"].includes(S.view) ? "false" : "page"}">${icon("menu")}Mais</button>
     </nav></div>`;
   $("#fab").hidden = false;
-  if (aeId) { const n = document.getElementById(aeId); if (n) { n.focus(); if (sel && n.value === sel[2]) try { n.setSelectionRange(sel[0], sel[1]); } catch {} } }
+  for (const [id, t] of Object.entries(typed)) { const n = document.getElementById(id); if (n && n.defaultValue === t.def) n.value = t.v; }
+  if (aeId) { const n = document.getElementById(aeId); if (n) { n.focus({ preventScroll: true }); if (sel && n.value === sel[2]) try { n.setSelectionRange(sel[0], sel[1]); } catch {} } }
+  if (sameView && Math.abs(scrollY - sy) > 1) scrollTo(0, sy);   // mantém a posição da tela
+  lastRenderView = S.view;
   root.querySelectorAll("table.stack").forEach(t => {
     const heads = [...t.querySelectorAll("thead th")].map(th => th.textContent.trim());
     t.querySelectorAll("tbody tr, tfoot tr").forEach(tr => { let i = 0; for (const td of tr.children) { if (!td.dataset.label && heads[i]) td.dataset.label = heads[i]; i += td.colSpan || 1; } });
@@ -1020,7 +1038,10 @@ function openPay(cardId, key) {
   sheetState = { kind: "pay", k: cardId, f: key, v: remaining > 0 ? remaining : null, a: k.payAccount || st().prefs.defaultAccount || "", d: todayISO() };
   renderSheet(); sheet.hidden = false; scrim.hidden = false;
 }
-function closeSheet() { sheet.hidden = true; scrim.hidden = true; sheetState = null; }
+function closeSheet() { sheet.hidden = true; scrim.hidden = true; sheetState = null; document.documentElement.classList.remove("sheet-open"); }
+new MutationObserver(() => document.documentElement.classList.toggle("sheet-open", !sheet.hidden)).observe(sheet, { attributes: true, attributeFilter: ["hidden"] });
+document.addEventListener("focusin", (e) => { if (e.target.matches?.("input:not([type=checkbox]):not([type=radio]), textarea, select")) document.documentElement.classList.add("typing"); });
+document.addEventListener("focusout", () => setTimeout(() => { if (!document.activeElement?.matches?.("input, textarea, select")) document.documentElement.classList.remove("typing"); }, 120));
 function instPlan(f) {
   const n = Math.max(1, Math.min(120, parseInt(f.pn, 10) || 1));
   if (!f.v) return { n, parts: [] };
@@ -1038,6 +1059,12 @@ function accChips(attr, sel, label) {
   return `<div>${lbl(label)}<div class="chips">${accs.map(a => `<button class="chip" data-act="${attr}" data-v="${esc(a.id)}" aria-pressed="${sel === a.id}">${esc(a.name)}</button>`).join("") || `<span class="muted small">Nenhuma conta. Cadastre em <a class="link" href="#contas" data-act="close">Contas</a>.</span>`}</div></div>`;
 }
 function renderSheet() {
+  const top = sheet.scrollTop, focusId = sheet.contains(document.activeElement) ? document.activeElement.id : null;
+  renderSheetInner();
+  sheet.scrollTop = top;
+  if (focusId) { const n = document.getElementById(focusId); if (n && n.tagName !== "BUTTON") n.focus({ preventScroll: true }); }
+}
+function renderSheetInner() {
   const f = sheetState; if (!f) return;
   if (f.kind === "pay") return renderPaySheet();
   if (f.kind === "menu") return renderMenuSheet();
@@ -1064,14 +1091,14 @@ function renderSheet() {
         <div class="preview" id="f-prev" style="margin-top:6px">${previewText(f)}</div></div>` : ""}
     <div>${lbl("Categoria")}<div class="chips">
       ${cats.map(c => `<button class="chip" data-act="s-cat" data-v="${esc(c.id)}" aria-pressed="${f.c === c.id}">${esc(c.name)}</button>`).join("")}
-      ${f.newCat ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newcat" placeholder="Nome da nova categoria"><button class="btn" data-act="s-newcat-save">Criar</button></span>` : `<button class="chip add" data-act="s-newcat">+ Nova categoria</button>`}</div></div>
+      ${f.newCat ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newcat" placeholder="Nome da nova categoria" value="${esc(f.newCatText || "")}"><button class="btn" data-act="s-newcat-save">Criar</button></span>` : `<button class="chip add" data-act="s-newcat">+ Nova categoria</button>`}</div></div>
     ${cat ? `<div>${lbl(`Subcategoria de ${esc(cat.name)} <span style="text-transform:none;letter-spacing:0;font-weight:500">(opcional)</span>`)}<div class="chips">
       ${subs.map(x => `<button class="chip" data-act="s-sub" data-v="${esc(x.id)}" aria-pressed="${f.s === x.id}">${esc(x.name)}</button>`).join("")}
-      ${f.newSub ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newsub" placeholder="Nome da subcategoria"><button class="btn" data-act="s-newsub-save">Criar</button></span>` : `<button class="chip add" data-act="s-newsub">+ Nova subcategoria</button>`}</div></div>` : ""}
+      ${f.newSub ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newsub" placeholder="Nome da subcategoria" value="${esc(f.newSubText || "")}"><button class="btn" data-act="s-newsub-save">Criar</button></span>` : `<button class="chip add" data-act="s-newsub">+ Nova subcategoria</button>`}</div></div>` : ""}
     <div>${lbl("Forma de pagamento")}<div class="chips">${PAY.filter(([k]) => f.t === "out" || k !== "credito").map(([k, n]) => `<button class="chip" data-act="s-pay" data-v="${k}" aria-pressed="${f.p === k}">${n}</button>`).join("")}</div></div>
     ${f.p === "credito" && f.t === "out" ? `<div>${lbl("Qual cartão")}<div class="chips">
       ${cards.map(k => `<button class="chip" data-act="s-card" data-v="${esc(k.id)}" aria-pressed="${f.k === k.id}">${esc(k.name)}</button>`).join("")}
-      ${f.newCard ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newcard" placeholder="Ex.: Nubank"><button class="btn" data-act="s-newcard-save">Criar</button></span>` : `<button class="chip add" data-act="s-newcard">+ Novo cartão</button>`}</div>
+      ${f.newCard ? `<span style="display:flex;gap:6px;flex:1;min-width:220px"><input class="field" id="f-newcard" placeholder="Ex.: Nubank" value="${esc(f.newCardText || "")}"><button class="btn" data-act="s-newcard-save">Criar</button></span>` : `<button class="chip add" data-act="s-newcard">+ Novo cartão</button>`}</div>
       ${f.k && cardById(f.k)?.closeDay ? `<div class="preview" style="margin-top:6px">Entra na fatura de <b class="cap">${esc(monthName(cycle(cardById(f.k), f.d).key))}</b> (vence ${dm(cycle(cardById(f.k), f.d).due)})</div>` : ""}</div>`
       : accChips("s-acc", f.a, f.t === "in" ? "Entrou na conta" : "Saiu da conta")}`}
     <div class="row2">
@@ -1119,6 +1146,7 @@ function syncForm() {
   const pn = $("#f-pn"); if (pn) f.pn = Math.max(1, Math.min(120, parseInt(pn.value, 10) || 1));
   const pf = $("#p-f"); if (pf) f.f = pf.value;
   const rc = $("#f-rec"); if (rc) f.rec = rc.checked;
+  for (const [id, k] of [["f-newcat", "newCatText"], ["f-newsub", "newSubText"], ["f-newcard", "newCardText"]]) { const x = $("#" + id); if (x) f[k] = x.value; }
 }
 function saveSheet(more) {
   syncForm(); const f = { ...sheetState }; const err = $("#f-err");
@@ -1634,11 +1662,11 @@ const ACTIONS = {
   "s-mode": (el) => { syncForm(); sheetState.mode = el.dataset.v; renderSheet(); },
   "s-date": (el) => { syncForm(); sheetState.d = el.dataset.v; renderSheet(); },
   "s-newcat": () => { syncForm(); sheetState.newCat = true; renderSheet(); $("#f-newcat")?.focus(); },
-  "s-newcat-save": () => { const name = $("#f-newcat").value; syncForm(); if (!name.trim()) return; const id = addCategory(name, sheetState.t); sheetState.c = id; sheetState.newCat = false; renderSheet(); },
+  "s-newcat-save": () => { const name = $("#f-newcat").value; syncForm(); if (!name.trim()) return; const id = addCategory(name, sheetState.t); sheetState.c = id; sheetState.newCat = false; sheetState.newCatText = ""; renderSheet(); },
   "s-newsub": () => { syncForm(); sheetState.newSub = true; renderSheet(); $("#f-newsub")?.focus(); },
-  "s-newsub-save": () => { const name = $("#f-newsub").value; syncForm(); if (!name.trim()) return; const id = addSub(sheetState.c, name); sheetState.s = id; sheetState.newSub = false; renderSheet(); },
+  "s-newsub-save": () => { const name = $("#f-newsub").value; syncForm(); if (!name.trim()) return; const id = addSub(sheetState.c, name); sheetState.s = id; sheetState.newSub = false; sheetState.newSubText = ""; renderSheet(); },
   "s-newcard": () => { syncForm(); sheetState.newCard = true; renderSheet(); $("#f-newcard")?.focus(); },
-  "s-newcard-save": () => { const name = $("#f-newcard").value; syncForm(); if (!name.trim()) return; const id = addCard(name); sheetState.k = id; sheetState.newCard = false; renderSheet(); toast("Cartão criado. Complete limite, fechamento e vencimento em Cartões."); },
+  "s-newcard-save": () => { const name = $("#f-newcard").value; syncForm(); if (!name.trim()) return; const id = addCard(name); sheetState.k = id; sheetState.newCard = false; sheetState.newCardText = ""; renderSheet(); toast("Cartão criado. Complete limite, fechamento e vencimento em Cartões."); },
   "s-save": () => saveSheet(false),
   "s-save-more": () => saveSheet(true),
   "s-del": () => { syncForm(); sheetState.confirmDel = true; renderSheet(); },
@@ -1670,10 +1698,11 @@ document.addEventListener("keydown", e => {
   if (e.target.id?.startsWith("se-")) { if (e.key === "Enter") { e.preventDefault(); root.querySelector('[data-act="sub-save"]')?.click(); } if (e.key === "Escape") { S.editSub = null; render(); } }
   if (e.key === "Enter" && e.target.dataset?.change) e.target.blur();
 });
+let searchT;
 document.addEventListener("input", e => {
   const id = e.target.id;
   if (id === "quickInput") updateQuickPreview();
-  if (id === "search") { S.search = e.target.value; render(); }
+  if (id === "search") { S.search = e.target.value; clearTimeout(searchT); searchT = setTimeout(render, 180); }
   if (e.target.dataset?.calc) calcGoal(e.target.dataset.calc, e.target.value);
   if (sheetState && (id === "f-pn" || id === "f-v" || id === "f-d")) {
     const before = sheetState.pn > 1; syncForm();
@@ -1698,9 +1727,10 @@ document.addEventListener("submit", e => {
   const f = e.target.closest("form[data-form]"); if (!f) return; e.preventDefault();
   const kind = f.dataset.form, el = f.elements;
   if (kind === "quick") return submitQuick();
-  if (kind === "newcat") { const name = el.name.value; if (!name.trim()) return el.name.focus(); addCategory(name, f.dataset.type, parseMoney(el.budget.value) || 0); toast(`Categoria "${name.trim()}" criada`); setTimeout(() => $(`#new-${f.dataset.type}-name`)?.focus(), 0); }
-  if (kind === "subadd") { const name = el.name.value; if (!name.trim()) return; addSub(f.dataset.c, name); setTimeout(() => $("#sa-" + f.dataset.c)?.focus(), 0); }
-  if (kind === "acc-quick") { const name = el.name.value; if (!name.trim()) return el.name.focus(); addAccount(name, parseMoney(el.initial.value) || 0); toast(`Conta "${name.trim()}" criada`); setTimeout(() => $("#oa-name")?.focus(), 0); }
+  const clearForm = () => { for (const x of f.querySelectorAll("input")) if (x.type !== "date") x.value = x.defaultValue = ""; };
+  if (kind === "newcat") { const name = el.name.value; if (!name.trim()) return el.name.focus(); const bud = parseMoney(el.budget.value) || 0; clearForm(); addCategory(name, f.dataset.type, bud); toast(`Categoria "${name.trim()}" criada`); setTimeout(() => $(`#new-${f.dataset.type}-name`)?.focus(), 0); }
+  if (kind === "subadd") { const name = el.name.value; if (!name.trim()) return; clearForm(); addSub(f.dataset.c, name); setTimeout(() => $("#sa-" + f.dataset.c)?.focus(), 0); }
+  if (kind === "acc-quick") { const name = el.name.value; if (!name.trim()) return el.name.focus(); const ini = parseMoney(el.initial.value) || 0; clearForm(); addAccount(name, ini); toast(`Conta "${name.trim()}" criada`); setTimeout(() => $("#oa-name")?.focus(), 0); }
   if (kind === "acc") {
     const name = el.name.value.trim(); if (!name) return el.name.focus();
     const v = (parseMoney(el.initial.value) || 0) * (el.neg.value === "1" ? -1 : 1);
@@ -1727,6 +1757,7 @@ document.addEventListener("submit", e => {
   }
   if (kind === "deposit") {
     const v = parseMoney(el.v.value); if (!v) return el.v.focus();
+    const dd = el.d.value; clearForm(); el.d.value = dd;
     const g = st().goals.find(x => x.id === f.dataset.id); g.deposits.push({ id: "d" + uid8(), d: el.d.value || todayISO(), v });
     saveSettings(); toast(`Depósito de ${money(v)} em ${g.name}`);
   }

@@ -22,7 +22,8 @@ function localStore() {
   let data = lsGet(LS_LOCAL) || { settings: null, tx: [] };
   let listener = () => {};
   const save = () => lsSet(LS_LOCAL, data);
-  const emit = () => listener({ settings: data.settings, tx: data.tx.slice(), sync: "local" });
+  let ver = 0;
+  const emit = () => listener({ settings: data.settings, tx: data.tx.slice(), sync: "local", ver: ++ver });
   return {
     mode: "local", user: null,
     async start(onData) { listener = onData; emit(); },
@@ -125,7 +126,9 @@ async function dropboxStore(ui) {
   let rev = cache.rev || null, dirty = !!cache.dirty, status = dirty ? "saving" : "saved", listener = () => {}, pushTimer = null, busy = false, again = false;
   const saveCache = () => lsSet(LS_CACHE, { data, base, rev, dirty });
   const join = (remote) => base ? merge3(base, data, remote) : legacyMerge(data, remote);
-  const emit = () => listener({ settings: data.settings, tx: data.tx.slice(), sync: status });
+  let ver = 1;                 // muda só quando os dados mudam (status de sincronização não conta)
+  const emit = () => listener({ settings: data.settings, tx: data.tx.slice(), sync: status, ver });
+  const bump = () => { ver++; };
   const setStatus = (s) => { if (s !== status) { status = s; emit(); } };
 
   async function download() {
@@ -159,7 +162,7 @@ async function dropboxStore(ui) {
       for (let i = 0; i < 4; i++) {
         if (!dirty) {
           const cur = await currentRev();
-          if (cur && cur !== rev) { const d = await download(); if (!d.notFound) { data = d.remote; base = clone(d.remote); rev = d.rev; saveCache(); emit(); } }
+          if (cur && cur !== rev) { const d = await download(); if (!d.notFound) { const changedData = JSON.stringify(d.remote) !== JSON.stringify(data); data = d.remote; base = clone(d.remote); rev = d.rev; saveCache(); if (changedData) { bump(); emit(); } } }
           else if (!cur && rev) { rev = null; dirty = true; continue; }
           break;
         }
@@ -167,7 +170,8 @@ async function dropboxStore(ui) {
         if (res.conflict) {
           const d = await download();
           if (d.notFound) { rev = null; continue; }
-          data = clean(join(d.remote)); base = clone(d.remote); rev = d.rev; saveCache(); emit();
+          const merged = clean(join(d.remote)); const changedData = JSON.stringify(merged) !== JSON.stringify(data);
+          data = merged; base = clone(d.remote); rev = d.rev; saveCache(); if (changedData) { bump(); emit(); }
           continue;
         }
         rev = res.rev; dirty = false; base = clone(data); saveCache();
@@ -183,7 +187,7 @@ async function dropboxStore(ui) {
     }
   }
   function changed() {
-    dirty = true; data.savedAt = Date.now(); saveCache(); status = "saving"; emit();
+    dirty = true; saveCache(); status = "saving"; bump(); emit();
     clearTimeout(pushTimer); pushTimer = setTimeout(sync, 700);
   }
 
