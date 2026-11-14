@@ -94,6 +94,12 @@ A barra do topo da tela Início entende frases curtas:
 
 Datas aceitas: `hoje`, `ontem`, `anteontem`, `dia 8`, `08/11`, `08/11/2026`. Para parcelas e descrição, use o botão **+ Lançar**.
 
+## Versão
+
+O número da versão aparece abaixo de Claro/Escuro/Auto (no menu lateral do computador e no menu **Mais** do celular). O sistema confere sozinho se há uma versão mais nova publicada e, se houver, mostra **"Nova versão: atualizar"**.
+
+Ao publicar uma atualização, mude o número em dois lugares: `APP_VERSION` e `APP_DATE` no início de `js/app.js`, e o arquivo `version.json`.
+
 ## Arquivos
 
 - `index.html`: estrutura e visual

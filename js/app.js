@@ -1,5 +1,9 @@
 import { openStore, cloudConfigured, newId } from "./store.js";
 
+// versão do sistema: mudar aqui e em version.json a cada atualização publicada
+const APP_VERSION = "1.6";
+const APP_DATE = "14/11/2026";
+
 // =====================================================================
 // helpers
 // =====================================================================
@@ -318,6 +322,7 @@ function render() {
           <button data-act="theme" data-v="dark" aria-pressed="${th === "dark"}">Escuro</button>
           <button data-act="theme" data-v="auto" aria-pressed="${th === "auto"}">Auto</button>
         </div>
+        ${versionHTML()}
       </div>
     </aside>
     <main class="main">${body}</main>
@@ -1122,6 +1127,7 @@ function renderMenuSheet() {
   sheet.innerHTML = `<div class="sheet-head"><h2>Menu</h2><button class="iconbtn" data-act="close" aria-label="Fechar">✕</button></div>
     <div class="menu-list">${Object.keys(VIEWS).map(v => `<a class="nav" href="#${v}" data-act="close" aria-current="${S.view === v ? "page" : "false"}">${icon(VIEWS[v][1])}${VIEWS[v][0]}</a>`).join("")}</div>
     <div class="theme" role="group" aria-label="Tema"><button data-act="theme" data-v="light" aria-pressed="${th === "light"}">Claro</button><button data-act="theme" data-v="dark" aria-pressed="${th === "dark"}">Escuro</button><button data-act="theme" data-v="auto" aria-pressed="${th === "auto"}">Auto</button></div>
+    ${versionHTML()}
     <div class="sync ${S.sync}"><i></i>${esc(syncTxt)}</div>`;
 }
 function renderPaySheet() {
@@ -1814,4 +1820,24 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = fal
 
 // instalação como aplicativo (Chrome/Edge) e funcionamento sem internet
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+// versão: mostra a atual e avisa quando há uma mais nova publicada
+function versionHTML() {
+  return `<div class="ver">Versão ${APP_VERSION} · ${APP_DATE}${S.newVersion ? `<br><button class="link" data-act="reload-app">Nova versão ${esc(S.newVersion)}: atualizar</button>` : `<span class="muted"> · atualizada</span>`}</div>`;
+}
+async function checkVersion() {
+  try {
+    const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return;
+    const v = (await r.json()).version;
+    const nv = v && v !== APP_VERSION ? v : null;
+    if (nv !== (S.newVersion || null)) { S.newVersion = nv; document.querySelectorAll(".ver").forEach(el => el.outerHTML = versionHTML()); }
+  } catch {}
+}
+ACTIONS["reload-app"] = async () => {
+  try { const regs = await navigator.serviceWorker?.getRegistrations?.(); for (const r of regs || []) await r.update(); } catch {}
+  location.reload();
+};
+checkVersion();
+setInterval(checkVersion, 30 * 60000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkVersion(); });
 addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); S.installPrompt = e; if (S.view === "config") render(); });
