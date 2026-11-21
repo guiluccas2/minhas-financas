@@ -23,6 +23,7 @@ Trazer junta com o que já existe, sem apagar nem duplicar (dá para repetir em 
 Cada compra finalizada no Minhas Compras aparece no Início, no quadro **Compras a lançar**, com data, loja, valor, forma de pagamento e quem comprou.
 
 - **Lançar** abre o lançamento já preenchido (valor, data, loja, pagamento). Na primeira compra de cada loja, a categoria sugerida é *Mercado › Supermercado*; depois o sistema lembra a categoria, o cartão e a conta usados em cada loja.
+- **Dividir por categoria** (quando a compra tem itens de categorias diferentes, como mercearia, limpeza e carnes): cada parte com o seu valor e a categoria do financeiro que você escolher. O sistema lembra a escolha de cada parte (ex.: Limpeza → Casa) e junta num lançamento só as partes que caem na mesma categoria. Se a compra for alterada depois, use **Refazer a divisão**.
 - **Não lançar** tira a compra do quadro (por exemplo, paga com vale-alimentação que você não controla aqui).
 - Se a compra for alterada no Minhas Compras depois de lançada, ela volta ao quadro com o valor antigo e o novo: **Abrir lançamento** para corrigir, ou **Está certo** para manter.
 

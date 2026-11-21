@@ -7,6 +7,8 @@ const ok = (c, m) => { console.log((c ? "✔ " : "✘ ") + m); if (!c) falhas++;
 const COMPRAS = [
   { id: "co-1", t: "compra", status: "fim", fin: "pendente", data: "2026-11-21", loja: "lj-atacadao", lojaNome: "Atacadão", total: 170, nItens: 3, pag: "Crédito", por: "Gui" },
   { id: "co-2", t: "compra", status: "fim", fin: "pendente", data: "2026-11-20", loja: "lj-atacadao", lojaNome: "Atacadão", total: 45.5, nItens: 2, pag: "Pix", por: "Esposa" },
+  { id: "co-4", t: "compra", status: "fim", fin: "pendente", data: "2026-11-18", loja: "lj-tauste", lojaNome: "Tauste", total: 180.5, nItens: 9, pag: "Pix", porCat: { "Mercearia": 100, "Limpeza": 30.5, "Carnes": 50 } },
+  { id: "co-5", t: "compra", status: "fim", fin: "pendente", data: "2026-11-17", loja: "lj-tauste", lojaNome: "Tauste", total: 40, nItens: 2, pag: "Pix", porCat: { "Mercearia": 25, "Limpeza": 15 } },
   { id: "co-3", t: "compra", status: "fim", fin: "pendente", data: "2026-11-19", loja: "lj-estrela", lojaNome: "Estrela", total: 12, nItens: 1, pag: "Dinheiro" },
 ];
 
@@ -19,7 +21,7 @@ const COMPRAS = [
   await p.goto(BASE + "?local=1#inicio");
   await p.waitForSelector("#compras-lancar");
   ok(await p.locator("text=Trazer seus dados do Dropbox").count() === 1, "sem dados: mostra o quadro de mudança do Dropbox");
-  ok(await p.locator("#compras-lancar .kv").count() === 3, "caixa Compras a lançar mostra 3 compras");
+  ok(await p.locator("#compras-lancar .kv").count() === 5, "caixa Compras a lançar mostra 5 compras");
   await p.click('[data-act="seed"]');
   await p.waitForTimeout(150);
   ok(await p.locator("text=Trazer seus dados do Dropbox").count() === 0, "com dados: quadro de mudança some");
@@ -53,6 +55,39 @@ const COMPRAS = [
   ok(await p.locator('[data-act="s-cat"][aria-pressed="true"]', { hasText: "Mercado" }).count() === 1, "categoria lembrada da loja");
   await p.click('[data-act="s-save"]');
   await p.waitForTimeout(150);
+  // C. dividir por categoria
+  await p.click('[data-act="compra-dividir"][data-id="co-4"]');
+  await p.waitForSelector("text=Dividir compra");
+  ok(await p.locator(".divlin").count() === 3, "divisão mostra as 3 categorias da compra");
+  ok((await p.textContent('[data-act="div-save"]')).includes("2 lançamentos"), "Mercearia e Limpeza caem em Mercado › Supermercado; Carnes em Mercado › Açougue (2 lançamentos)");
+  ok((await p.textContent(".divlin >> nth=2")).includes("Limpeza"), "partes em ordem de valor (Limpeza é a 3ª)");
+  const idCompras = await p.evaluate(() => [...document.querySelectorAll('[data-change="div-cat"][data-i="2"] option')].find(o => o.textContent === "Compras").value);
+  await p.selectOption('[data-change="div-cat"][data-i="2"]', idCompras);
+  await p.waitForTimeout(80);
+  ok((await p.textContent('[data-act="div-save"]')).includes("3 lançamentos"), "trocando Limpeza para Compras ficam 3 lançamentos");
+  await p.click('[data-act="div-save"]');
+  await p.waitForTimeout(150);
+  d = await dados();
+  const div = d.tx.filter(t => t.compra === "co-4");
+  ok(div.length === 3 && div.reduce((a, t) => a + t.v, 0) === 18050 && div.every(t => t.p === "pix"), "3 lançamentos somando R$ 180,50, no Pix");
+  marc = await p.evaluate(() => window.__comprasMarcadas);
+  ok(marc.some(x => x.id === "co-4" && x.fin === "lancado" && x.finTxs?.length === 3 && x.finValor === 18050), "compra dividida marcada como lançada, com os 3 lançamentos");
+  ok(d.settings.comprasCatMap?.["Limpeza"]?.c === idCompras, "escolha de Limpeza → Compras lembrada");
+  await p.click('[data-act="compra-dividir"][data-id="co-5"]');
+  ok(await p.locator('[data-change="div-cat"][data-i="1"]').inputValue() === idCompras, "na próxima compra, Limpeza já vem em Compras");
+  await p.click('[data-act="div-save"]');
+  await p.waitForTimeout(150);
+  // compra dividida alterada depois: refazer a divisão
+  await p.evaluate(() => { const c = window.__comprasTeste.find(x => x.id === "co-4"); const m = window.__comprasMarcadas.filter(x => x.id === "co-4").at(-1); Object.assign(c, { fin: "revisar", total: 190.5, porCat: { "Mercearia": 110, "Limpeza": 30.5, "Carnes": 50 }, finTxs: m.finTxs, finValor: 18050 }); window.__comprasAtualizar(); });
+  await p.waitForTimeout(120);
+  await p.click('[data-act="compra-redividir"]');
+  await p.waitForSelector("text=Dividir compra");
+  await p.click('[data-act="div-save"]');
+  await p.waitForTimeout(150);
+  d = await dados();
+  const div2 = d.tx.filter(t => t.compra === "co-4");
+  ok(div2.length === 3 && div2.reduce((a, t) => a + t.v, 0) === 19050, "refazer a divisão troca os lançamentos antigos pelos novos (R$ 190,50, sem duplicar)");
+
   // 3ª: não lançar
   await p.click('[data-act="compra-ignorar"][data-id="co-3"]');
   await p.waitForTimeout(150);

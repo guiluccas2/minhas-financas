@@ -12,6 +12,7 @@ PWA em JavaScript puro (módulos ES, sem build), publicado no GitHub Pages (`htt
 ## Ligação com o Minhas Compras (repositório `minhas-compras`)
 - `store.ouvirCompras` lê `casa/principal/regs` com `fin` em `pendente`/`revisar` (compras finalizadas, com `total` em reais, `nItens`, `pag`, `loja`, `data`, `por`); nomes das lojas vêm dos registros `t: "loja"`.
 - Ao lançar: o lançamento ganha `compra: <id>`; a compra recebe `fin: "lancado"`, `finTx`, `finValor` (centavos) via `store.marcarCompra`. “Não lançar” = `fin: "ignorado"`. `revisar` = compra alterada depois de lançada.
+- **Dividir por categoria** (compras com `porCat` de 2+ categorias): janela `compraDiv` (`openDiv`/`renderDivSheet`/`saveDiv`). Categoria do Minhas Compras → categoria/subcategoria do financeiro lembrada em `settings.comprasCatMap[nome]` (padrão: mesmo nome, ou `DIV_PADRAO`, ou Mercado › Supermercado). Partes com a mesma categoria/sub viram um lançamento; todos levam `compra` e `cg` (grupo); a compra recebe `finTxs` (lista). Compra dividida alterada → “Refazer a divisão” apaga os lançamentos antigos e abre a divisão de novo.
 - Preferência por loja (categoria, subcategoria, pagamento, cartão, conta) em `settings.comprasPref[lojaId]`. Primeira compra de uma loja: categoria “Mercado” › “Supermercado” se existir.
 - Mudou algum desses campos? Atualize os dois repositórios e os dois `CLAUDE.md`.
 

@@ -1,7 +1,7 @@
 import { openStore, cloudConfigured, newId, dropboxNoAparelho, baixarDoDropbox, conectarDropbox } from "./store.js";
 
 // versão do sistema: mudar aqui e em version.json a cada atualização publicada
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.8";
 const APP_DATE = "21/11/2026";
 
 // =====================================================================
@@ -486,9 +486,9 @@ function comprasHTML() {
   return `<section class="card" id="compras-lancar"><h2>Compras a lançar <span class="muted small">· do Minhas Compras</span></h2>
     <div style="display:grid;gap:10px">${lista.map(c => c.fin === "revisar" ? `
       <div class="kv"><span><b>${esc(dm(c.data))} · ${esc(c.lojaNome || "Compra")}</b><br><span class="small out-c">Alterada depois de lançada: era ${money(c.finValor || 0)}, agora ${money(centavos(c.total))}</span></span>
-        <span class="actions">${S.tx.some(t => t.id === c.finTx) ? `<button class="btn sm" data-act="compra-revisar" data-id="${esc(c.id)}">Abrir lançamento</button>` : `<button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button>`}<button class="btn ghost sm" data-act="compra-ok" data-id="${esc(c.id)}">Está certo</button></span></div>` : `
+        <span class="actions">${(c.finTxs || []).length > 1 ? `<button class="btn sm" data-act="compra-redividir" data-id="${esc(c.id)}">Refazer a divisão</button>` : S.tx.some(t => t.id === c.finTx) ? `<button class="btn sm" data-act="compra-revisar" data-id="${esc(c.id)}">Abrir lançamento</button>` : `<button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button>`}<button class="btn ghost sm" data-act="compra-ok" data-id="${esc(c.id)}">Está certo</button></span></div>` : `
       <div class="kv"><span><b>${esc(dm(c.data))} · ${esc(c.lojaNome || "Compra")} · ${money(centavos(c.total))}</b><br><span class="muted small">${[c.pag, c.nItens ? c.nItens + " itens" : "", c.por ? "por " + c.por : ""].filter(Boolean).map(esc).join(" · ")}</span></span>
-        <span class="actions"><button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button><button class="btn ghost sm" data-act="compra-ignorar" data-id="${esc(c.id)}">Não lançar</button></span></div>`).join("")}
+        <span class="actions"><button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button>${Object.keys(c.porCat || {}).length > 1 ? `<button class="btn ghost sm" data-act="compra-dividir" data-id="${esc(c.id)}">Dividir por categoria</button>` : ""}<button class="btn ghost sm" data-act="compra-ignorar" data-id="${esc(c.id)}">Não lançar</button></span></div>`).join("")}
     </div></section>`;
 }
 function lancarCompra(c) {
@@ -499,6 +499,78 @@ function lancarCompra(c) {
   openSheet({ t: "out", v: centavos(c.total), d: c.data, n: c.lojaNome || "", o: `Minhas Compras${c.nItens ? " · " + c.nItens + " itens" : ""}`,
     c: c0, s: pref.c === c0 ? pref.s || null : (catById(c0)?.subs || []).find(x => !x.archived && norm(x.name) === "supermercado")?.id || null, p, k: p === "credito" && pref.p === "credito" ? pref.k || "" : (p === "credito" ? "" : ""), a: p !== "credito" && pref.a ? pref.a : st().prefs.defaultAccount || "",
     compra: c.id, compraLoja: c.loja, compraValor: centavos(c.total), pn: 1 });
+}
+
+// Divisão de uma compra por categoria: cada categoria do Minhas Compras (Mercearia, Limpeza…) vira uma linha
+// com categoria/subcategoria do financeiro (lembradas em settings.comprasCatMap). Linhas com a mesma
+// categoria/subcategoria viram um só lançamento.
+const DIV_PADRAO = { "Carnes": ["mercado", "acougue"], "Padaria": ["mercado", "padaria"], "Farmácia": ["saude", "farmacia"], "Hortifrúti": ["mercado", "feira"] };
+function catPadraoDiv(nomeCompras) {
+  const mapa = (st().comprasCatMap || {})[nomeCompras];
+  if (mapa?.c && catById(mapa.c) && !catById(mapa.c).archived) return { c: mapa.c, s: mapa.s && subOf(catById(mapa.c), mapa.s) ? mapa.s : null };
+  const outs = activeCats("out");
+  const igual = outs.find(x => norm(x.name) === norm(nomeCompras));
+  if (igual) return { c: igual.id, s: null };
+  const [cn, sn] = DIV_PADRAO[nomeCompras] || ["mercado", "supermercado"];
+  const cat = outs.find(x => norm(x.name) === cn) || outs.find(x => ["mercado", "supermercado", "alimentacao"].includes(norm(x.name)));
+  if (!cat) return { c: null, s: null };
+  return { c: cat.id, s: (cat.subs || []).find(x => !x.archived && norm(x.name) === sn)?.id || null };
+}
+function openDiv(c) {
+  const pref = (st().comprasPref || {})[c.loja] || {};
+  const p = PAG_COMPRAS[c.pag] || pref.p || "";
+  const linhas = Object.entries(c.porCat || {}).sort((a, b) => b[1] - a[1]).map(([nome, v]) => ({ nome, v: centavos(v), ...catPadraoDiv(nome) }));
+  sheetState = { kind: "compraDiv", compra: c.id, compraLoja: c.loja, compraValor: centavos(c.total), n: c.lojaNome || "", d: c.data, nItens: c.nItens, linhas,
+    p, k: p === "credito" && pref.p === "credito" ? pref.k || "" : "", a: p !== "credito" ? pref.a || st().prefs.defaultAccount || "" : "" };
+  renderSheet(); sheet.hidden = false; scrim.hidden = false;
+}
+function renderDivSheet() {
+  const f = sheetState;
+  const outs = activeCats("out");
+  const cards = st().cards.filter(k => !k.archived);
+  const grupos = new Set(f.linhas.map(l => `${l.c}|${l.s || ""}`)).size;
+  sheet.innerHTML = `
+    <div class="sheet-head"><h2>Dividir compra</h2><button class="iconbtn" data-act="close" aria-label="Fechar">✕</button></div>
+    <div class="info"><b>${esc(f.n)}</b> · ${esc(dm(f.d))} · total <b>${money(f.compraValor)}</b>. Escolha a categoria de cada parte; o sistema lembra para as próximas compras.</div>
+    <div style="display:grid;gap:10px">${f.linhas.map((l, i) => {
+      const cat = catById(l.c);
+      return `<div class="divlin"><div class="kv"><b>${esc(l.nome)}</b><b>${money(l.v)}</b></div>
+        <div class="row2"><select class="field" data-change="div-cat" data-i="${i}" aria-label="Categoria de ${esc(l.nome)}"><option value="">Categoria…</option>${outs.map(c => `<option value="${esc(c.id)}" ${c.id === l.c ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+        <select class="field" data-change="div-sub" data-i="${i}" aria-label="Subcategoria de ${esc(l.nome)}" ${cat?.subs?.length ? "" : "disabled"}><option value="">(sem subcategoria)</option>${(cat?.subs || []).filter(x => !x.archived).map(x => `<option value="${esc(x.id)}" ${x.id === l.s ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div></div>`;
+    }).join("")}</div>
+    <div>${lbl("Forma de pagamento")}<div class="chips">${PAY.map(([k, n]) => `<button class="chip" data-act="s-pay" data-v="${k}" aria-pressed="${f.p === k}">${n}</button>`).join("")}</div></div>
+    ${f.p === "credito" ? `<div>${lbl("Qual cartão")}<div class="chips">${cards.map(k => `<button class="chip" data-act="s-card" data-v="${esc(k.id)}" aria-pressed="${f.k === k.id}">${esc(k.name)}</button>`).join("") || `<span class="muted small">Nenhum cartão. Cadastre em <a class="link" href="#cartoes" data-act="close">Cartões</a>.</span>`}</div></div>` : accChips("s-acc", f.a, "Saiu da conta")}
+    <div>${lbl("Data")}<input class="field" type="date" id="f-d" value="${esc(f.d)}" aria-label="Data"></div>
+    <div class="err" id="f-err"></div>
+    <div class="sheet-foot"><span></span><div class="right"><button class="btn" data-act="div-save">Salvar ${grupos} lançamento${grupos > 1 ? "s" : ""}</button></div></div>`;
+}
+function saveDiv() {
+  syncForm();
+  const f = sheetState, err = $("#f-err");
+  if (f.linhas.some(l => !l.c)) { err.textContent = "Escolha a categoria de cada parte."; return; }
+  if (f.p === "credito" && !f.k) { err.textContent = "Escolha qual cartão."; return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.d)) { err.textContent = "Escolha uma data válida."; return; }
+  // junta as partes que caem na mesma categoria/subcategoria
+  const grupos = new Map();
+  for (const l of f.linhas) {
+    const k = `${l.c}|${l.s || ""}`;
+    const g = grupos.get(k) || { c: l.c, s: l.s || "", v: 0, nomes: [] };
+    g.v += l.v; g.nomes.push(l.nome); grupos.set(k, g);
+  }
+  const credit = f.p === "credito";
+  const gid = "g" + uid8();
+  const list = [...grupos.values()].map((g, i) => mkTx({ t: "out", v: g.v, c: g.c, s: g.s, p: f.p || "", k: credit ? f.k : "", a: credit ? "" : (f.a || ""), n: f.n, o: `Minhas Compras · ${g.nomes.join(", ")}`, d: f.d, compra: f.compra, cg: gid, at: Date.now() + i }));
+  const mapa = { ...(st().comprasCatMap || {}) };
+  for (const l of f.linhas) mapa[l.nome] = { c: l.c, s: l.s || "" };
+  st().comprasCatMap = mapa;
+  const prefAnt = (st().comprasPref || {})[f.compraLoja] || {};
+  st().comprasPref = { ...(st().comprasPref || {}), [f.compraLoja]: { ...prefAnt, p: f.p || "", k: credit ? f.k : "", a: credit ? "" : (f.a || "") } };
+  lastPaySet({ p: f.p || "", k: credit ? f.k : "", a: credit ? lastPayGet().a : (f.a || "") });
+  saveSettings();
+  putTx(list);
+  S.store.marcarCompra?.(f.compra, { fin: "lancado", finTx: list[0].id, finTxs: list.map(t => t.id), finValor: f.compraValor }).catch(e => toast("Lançado, mas não foi possível avisar o Minhas Compras: " + e.message));
+  closeSheet();
+  toast(`Compra lançada em ${list.length} lançamento${list.length > 1 ? "s" : ""}`);
 }
 
 function onboardingHTML() {
@@ -1114,6 +1186,7 @@ function renderSheetInner() {
   const f = sheetState; if (!f) return;
   if (f.kind === "pay") return renderPaySheet();
   if (f.kind === "menu") return renderMenuSheet();
+  if (f.kind === "compraDiv") return renderDivSheet();
   const orig = f.id ? S.tx.find(t => t.id === f.id) : null;
   const isInst = orig && orig.pn > 1;
   const cats = activeCats(f.t === "transfer" ? "out" : f.t);
@@ -1676,6 +1749,15 @@ const ACTIONS = {
   "migrar-copia": () => migrar("copia"),
   "migrar-conectar": () => conectarDropbox(),
   "compra-lancar": (el) => { const c = (S.compras || []).find(x => x.id === el.dataset.id); if (c) lancarCompra(c); },
+  "compra-dividir": (el) => { const c = (S.compras || []).find(x => x.id === el.dataset.id); if (c) openDiv(c); },
+  "compra-redividir": (el) => {
+    const c = (S.compras || []).find(x => x.id === el.dataset.id); if (!c) return;
+    const velhos = (c.finTxs || []).filter(id => S.tx.some(t => t.id === id));
+    if (velhos.length) delTx(velhos);
+    openDiv(c);
+    toast("Os lançamentos antigos desta compra foram apagados. Confira a nova divisão e salve.");
+  },
+  "div-save": () => saveDiv(),
   "compra-ignorar": async (el) => { try { await S.store.marcarCompra(el.dataset.id, { fin: "ignorado" }); toast("Compra marcada para não lançar"); } catch (e) { toast(e.message); } },
   "compra-ok": async (el) => { const c = (S.compras || []).find(x => x.id === el.dataset.id); try { await S.store.marcarCompra(c.id, { fin: "lancado", finValor: centavos(c.total) }); toast("Ok, mantido como está"); } catch (e) { toast(e.message); } },
   "compra-revisar": (el) => {
@@ -1780,6 +1862,13 @@ document.addEventListener("change", e => {
   if (el.id === "pstart") { S.period.start = el.value; render(); return; }
   if (el.id === "p-f" && sheetState) { syncForm(); const info = cardInfo(cardById(sheetState.k)); const r = (info.inv[sheetState.f] || 0) - (info.paid[sheetState.f] || 0); sheetState.v = r > 0 ? r : sheetState.v; renderSheet(); return; }
   const ch = el.dataset.change;
+  if ((ch === "div-cat" || ch === "div-sub") && sheetState?.kind === "compraDiv") {
+    syncForm();
+    const l = sheetState.linhas[+el.dataset.i];
+    if (ch === "div-cat") { l.c = el.value || null; l.s = (st().comprasCatMap || {})[l.nome]?.c === l.c ? (st().comprasCatMap[l.nome].s || null) : null; }
+    else l.s = el.value || null;
+    renderSheet(); return;
+  }
   if (ch === "cat-budget") { const c = catById(el.dataset.id), v = parseMoney(el.value) || 0; if (c && c.budget !== v) { c.budget = v; saveSettings(); toast(`${c.type === "out" ? "Meta" : "Previsto"} de ${c.name}: ${money(v)}`); } }
   if (ch === "cat-rename") { const c = catById(el.dataset.id), name = el.value.trim(); if (c && name && name !== c.name) { c.name = name; saveSettings(); } else if (c) el.value = c.name; }
   if (ch === "def-acc") { st().prefs.defaultAccount = el.value; saveSettings(); }
