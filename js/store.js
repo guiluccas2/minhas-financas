@@ -1,12 +1,16 @@
-// Camada de dados. Duas implementações com a mesma interface:
-//  - Dropbox: os dados ficam num arquivo JSON na pasta do app no seu Dropbox. Conecta uma vez por
-//    aparelho (a conexão se renova sozinha), salva automaticamente e sincroniza entre aparelhos.
-//    Uma cópia fica no navegador, então a página abre na hora e funciona sem internet.
-//  - Local (localStorage): usada enquanto o Dropbox não foi configurado em js/config.js.
-import { dropboxConfig } from "./config.js";
+// Camada de dados. Implementações com a mesma interface (start, saveSettings, putTx, delTx, signOut):
+//  - Firebase (padrão): login com Google; cada lançamento é um documento em financas/principal/tx e as
+//    configurações ficam em financas/principal/cfg/settings. Sincroniza em tempo real entre os aparelhos
+//    (você e sua esposa), abre na hora com a cópia do navegador e funciona sem internet.
+//  - Local (localStorage): só com ?local=1 no endereço (testes).
+//  - Dropbox: não guarda mais os dados; ficou só para TRAZER os dados antigos (mudança para o Firebase).
+// O mesmo projeto Firebase guarda o Minhas Compras (casa/principal/regs): daqui se leem as compras
+// finalizadas com fin = "pendente" ou "revisar" (caixa "Compras a lançar") e se marca fin = "lancado".
+import { dropboxConfig, firebaseConfig } from "./config.js";
 import { merge3, legacyMerge } from "./merge.js";
 
-export const cloudConfigured = !!dropboxConfig.appKey;
+export const cloudConfigured = !!firebaseConfig?.apiKey;
+const MODO_LOCAL = new URLSearchParams(location.search).has("local");
 export const newId = (p = "t") => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 const LS_LOCAL = "minhas-financas-v3";
@@ -31,7 +35,31 @@ function localStore() {
     async putTx(list) { const ids = new Set(list.map(t => t.id)); data.tx = data.tx.filter(t => !ids.has(t.id)).concat(list); save(); emit(); },
     async delTx(ids) { const set = new Set(ids); data.tx = data.tx.filter(t => !set.has(t.id)); save(); emit(); },
     async signOut() {},
+    // testes: compras simuladas em window.__comprasTeste; marcações ficam em window.__comprasMarcadas
+    ouvirCompras(cb) { const l = () => cb((window.__comprasTeste || []).filter(c => c.fin === "pendente" || c.fin === "revisar")); l(); window.__comprasAtualizar = l; },
+    async marcarCompra(id, campos) { (window.__comprasMarcadas ||= []).push({ id, ...campos }); const c = (window.__comprasTeste || []).find(x => x.id === id); if (c) Object.assign(c, campos); window.__comprasAtualizar?.(); },
+    async importar(dados) { const r = juntarImport({ settings: data.settings, tx: data.tx }, dados); data.settings = r.settings; data.tx = data.tx.concat(r.novos); save(); emit(); return r; },
+    vazio: () => !data.settings && !data.tx.length,
   };
+}
+
+// Junta dados trazidos (Dropbox ou arquivo) com os atuais, sem apagar nada:
+// cadastros (categorias, cartões, contas, contas fixas, objetivos) entram os que faltam (pelo id);
+// lançamentos entram os que ainda não existem.
+export function juntarImport(atual, novo) {
+  const s = JSON.parse(JSON.stringify(atual.settings || {}));
+  const src = novo.settings || {};
+  const listas = ["categories", "cards", "accounts", "recurring", "goals"];
+  for (const k of listas) {
+    const cur = Array.isArray(s[k]) ? s[k] : [];
+    const ids = new Set(cur.map(x => x.id));
+    s[k] = cur.concat((src[k] || []).filter(x => x && !ids.has(x.id)));
+  }
+  if (!s.prefs && src.prefs) s.prefs = src.prefs;
+  for (const k of Object.keys(src)) if (!(k in s)) s[k] = src[k];
+  const tem = new Set((atual.tx || []).map(t => t.id));
+  const novos = (novo.tx || []).filter(t => t && t.id && t.d && !tem.has(t.id)).map(t => ({ ...t, m: t.d.slice(0, 7) }));
+  return { settings: s, novos };
 }
 
 // ---------------- Dropbox: autenticação (OAuth com PKCE, sem senha no código) ----------------
@@ -222,7 +250,221 @@ async function dropboxStore(ui) {
   return store;
 }
 
+// ---------------- Dropbox: só para trazer os dados antigos ----------------
+// Há conexão com o Dropbox guardada neste aparelho? (ou uma cópia do arquivo da última sincronização)
+export function dropboxNoAparelho() {
+  const tok = lsGet(LS_TOKEN), cache = lsGet(LS_CACHE);
+  return { conectado: !!tok?.refresh, copia: cache?.data ? clean(cache.data) : null };
+}
+// Baixa o arquivo atual do Dropbox (usa a conexão guardada neste aparelho)
+export async function baixarDoDropbox() {
+  let tok = lsGet(LS_TOKEN);
+  if (!tok?.refresh) throw new Error("Este aparelho não está conectado ao Dropbox.");
+  if (!(tok.access && tok.exp > Date.now() + 60000)) {
+    const j = await tokenRequest({ grant_type: "refresh_token", refresh_token: tok.refresh });
+    tok = { ...tok, access: j.access_token, exp: Date.now() + (j.expires_in || 14400) * 1000 }; lsSet(LS_TOKEN, tok);
+  }
+  const r = await fetch("https://content.dropboxapi.com/2/files/download", { method: "POST", headers: { Authorization: "Bearer " + tok.access, "Dropbox-API-Arg": JSON.stringify({ path: PATH }) } });
+  if (r.status === 409) throw new Error("O arquivo de dados não foi encontrado no Dropbox.");
+  if (!r.ok) throw new Error("Erro ao ler o Dropbox (" + r.status + ")");
+  const t = await r.text();
+  return clean(t.trim() ? JSON.parse(t) : {});
+}
+// Conecta ao Dropbox (vai e volta do site do Dropbox); na volta, a mudança continua sozinha
+export async function conectarDropbox() {
+  const { verifier, challenge } = await pkce();
+  sessionStorage.setItem(SS_VERIFIER, verifier);
+  sessionStorage.setItem("mf-migrar", "1");
+  const u = new URL("https://www.dropbox.com/oauth2/authorize");
+  Object.entries({ client_id: dropboxConfig.appKey, response_type: "code", code_challenge: challenge, code_challenge_method: "S256", token_access_type: "offline", redirect_uri: redirectUri() })
+    .forEach(([k, v]) => u.searchParams.set(k, v));
+  location.href = u.toString();
+}
+
+// ---------------- Firebase ----------------
+const FB_V = "10.12.2", GS = `https://www.gstatic.com/firebasejs/${FB_V}/`;
+const LS_FB = "mf-firebase-cache";
+let FB = null, fbApp = null, fbAuth = null, fbDb = null;
+async function carregarFirebase() {
+  if (FB) return FB;
+  const [a, b, c] = await Promise.all([import(GS + "firebase-app.js"), import(GS + "firebase-auth.js"), import(GS + "firebase-firestore.js")]);
+  FB = { ...a, ...b, ...c };
+  fbApp = FB.initializeApp(firebaseConfig);
+  fbAuth = FB.getAuth(fbApp);
+  try { fbDb = FB.initializeFirestore(fbApp, { localCache: FB.persistentLocalCache({ tabManager: FB.persistentMultipleTabManager() }) }); }
+  catch { fbDb = FB.getFirestore(fbApp); }
+  return FB;
+}
+const semIndefinidos = (x) => JSON.parse(JSON.stringify(x));
+function traduz(e) {
+  const c = e?.code || "";
+  if (c.includes("permission-denied")) return "Este e-mail não tem acesso aos dados. Entre com um dos e-mails liberados nas regras do Firebase.";
+  if (c.includes("unauthorized-domain")) return "Este endereço não está autorizado no Firebase (Authentication → Configurações → Domínios autorizados).";
+  if (c.includes("network")) return "Sem conexão com a internet.";
+  return e?.message || String(e);
+}
+
+async function firebaseStore(ui) {
+  const cache = lsGet(LS_FB) || {};
+  const store = { mode: "firebase", user: null };
+  try { await carregarFirebase(); }
+  catch {
+    if (!cache.settings && !cache.tx) throw new Error("Sem internet: no primeiro acesso é preciso estar conectado.");
+    FB = null; // abre com a cópia do aparelho; grava como pendente e envia quando a conexão voltar (recarregar)
+  }
+  if (FB) FB.getRedirectResult(fbAuth).catch(e => ui.error(traduz(e)));
+  // espera saber se há alguém conectado (no máximo 8 s)
+  const user = FB ? await new Promise(res => { const t = setTimeout(() => res(fbAuth.currentUser), 8000); const off = FB.onAuthStateChanged(fbAuth, u => { clearTimeout(t); off(); res(u); }); }) : null;
+  store.signIn = async () => {
+    const prov = new FB.GoogleAuthProvider(); prov.setCustomParameters({ prompt: "select_account" });
+    try { await FB.signInWithPopup(fbAuth, prov); location.reload(); }
+    catch (e) {
+      if (e?.code === "auth/popup-blocked" || e?.code === "auth/operation-not-supported-in-this-environment") return FB.signInWithRedirect(fbAuth, prov);
+      if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
+      throw new Error(traduz(e));
+    }
+  };
+  if (FB && !user) { store.needsLogin = true; return store; }
+  if (user) store.user = { displayName: user.displayName || "", email: user.email || "" };
+
+  // estado local: settings, lançamentos por id, base (última versão das configurações vinda da nuvem)
+  let settings = cache.settings ?? null, base = cache.base ?? null;
+  const tx = new Map((cache.tx || []).map(t => [t.id, t]));
+  let ultimo = cache.ultimo || 0;
+  const pendTx = new Set(cache.pendTx || []);
+  let pendSettings = !!cache.pendSettings;
+  let listener = () => {}, ver = 1, status = FB ? "saving" : "offline", carregou = false, vazioNuvem = false;
+  let tSalvar;
+  const salvarCache = () => { clearTimeout(tSalvar); tSalvar = setTimeout(() => lsSet(LS_FB, { settings, base, tx: [...tx.values()], ultimo, pendTx: [...pendTx], pendSettings }), 150); };
+  addEventListener("pagehide", () => { clearTimeout(tSalvar); lsSet(LS_FB, { settings, base, tx: [...tx.values()], ultimo, pendTx: [...pendTx], pendSettings }); });
+  const emit = () => listener({ settings, tx: [...tx.values()], sync: status, ver });
+  const mudou = () => { ver++; salvarCache(); emit(); };
+  const setStatus = (s) => { if (s !== status) { status = s; emit(); } };
+
+  const raiz = FB ? FB.doc(fbDb, "financas", "principal") : null;
+  const colTx = FB ? FB.collection(raiz, "tx") : null;
+  const refCfg = FB ? FB.doc(raiz, "cfg", "settings") : null;
+
+  function enviarTx(t) {
+    if (!FB) { pendTx.add(t.id); salvarCache(); return; }
+    FB.setDoc(FB.doc(colTx, t.id), { ...semIndefinidos(t), upd: FB.serverTimestamp() }).catch(e => ui.error(traduz(e)));
+    pendTx.delete(t.id);
+  }
+  let gravandoCfg = 0;
+  async function enviarSettings() {
+    if (!FB) { pendSettings = true; salvarCache(); return; }
+    pendSettings = false; salvarCache();
+    const local = semIndefinidos(settings);
+    gravandoCfg++;
+    try {
+      if (navigator.onLine) {
+        // junta com o que estiver na nuvem (outro aparelho pode ter mudado ao mesmo tempo)
+        let final = local;
+        await FB.runTransaction(fbDb, async (tr) => {
+          const snap = await tr.get(refCfg);
+          const remoto = snap.exists() ? snap.data().settings : null;
+          final = remoto && base ? merge3(base, local, remoto) : local;
+          tr.set(refCfg, { settings: semIndefinidos(final), upd: FB.serverTimestamp() });
+        });
+        base = semIndefinidos(final);
+        if (JSON.stringify(final) !== JSON.stringify(settings)) { settings = final; mudou(); } else salvarCache();
+        return;
+      }
+    } catch (e) {
+      if ((e?.code || "").includes("permission-denied")) { ui.error(traduz(e)); return; }
+    } finally { gravandoCfg--; }
+    // sem internet: grava assim mesmo (o Firebase envia quando a conexão voltar)
+    FB.setDoc(refCfg, { settings: local, upd: FB.serverTimestamp() }).catch(e => ui.error(traduz(e)));
+    base = local;
+  }
+
+  store.start = async (onData) => {
+    listener = onData;
+    emit();
+    if (!FB) return;
+    // envia o que ficou pendente (gravado sem conexão)
+    for (const id of pendTx) { const t = tx.get(id); if (t) enviarTx(t); else pendTx.delete(id); }
+    if (pendSettings && settings) enviarSettings();
+    let primeiraTx = true, primeiraCfg = true, okTx = false, okCfg = false;
+    const pronto = () => { if (okTx && okCfg && !carregou) { carregou = true; vazioNuvem = !settings && !tx.size; ver++; emit(); } };
+    FB.onSnapshot(FB.query(colTx, FB.where("upd", ">", FB.Timestamp.fromMillis(Math.max(0, ultimo - 1)))), { includeMetadataChanges: true }, (snap) => {
+      let mudouAlgo = false;
+      for (const ch of snap.docChanges()) {
+        if (ch.doc.metadata.hasPendingWrites) continue;
+        const d = ch.doc.data();
+        const ms = d.upd?.toMillis ? d.upd.toMillis() : 0;
+        if (ms > ultimo) ultimo = ms;
+        const { upd, del, ...t } = d;
+        if (del) { if (tx.delete(d.id)) mudouAlgo = true; }
+        else if (JSON.stringify(tx.get(t.id)) !== JSON.stringify(t)) { tx.set(t.id, t); mudouAlgo = true; }
+      }
+      if (mudouAlgo) mudou(); else salvarCache();
+      setStatus(snap.metadata.hasPendingWrites ? "saving" : snap.metadata.fromCache ? (navigator.onLine ? "saving" : "offline") : "saved");
+      if (primeiraTx && !snap.metadata.fromCache) { primeiraTx = false; okTx = true; pronto(); }
+    }, (e) => { setStatus("error"); ui.error(traduz(e)); ui.negado?.(traduz(e)); });
+    FB.onSnapshot(refCfg, { includeMetadataChanges: true }, (snap) => {
+      if (!snap.metadata.hasPendingWrites && !gravandoCfg && snap.exists()) {
+        const remoto = snap.data().settings;
+        base = semIndefinidos(remoto);
+        if (JSON.stringify(remoto) !== JSON.stringify(settings)) { settings = remoto; mudou(); } else salvarCache();
+      }
+      if (primeiraCfg && !snap.metadata.fromCache) { primeiraCfg = false; okCfg = true; pronto(); }
+    }, () => {});
+  };
+  store.saveSettings = async (s) => { const { _u, lastPay, ...rest } = s; settings = rest; mudou(); enviarSettings(); };
+  store.putTx = async (list) => { for (const t0 of list) { const { u, ...t } = t0; tx.set(t.id, t); enviarTx(t); } mudou(); };
+  store.delTx = async (ids) => {
+    for (const id of ids) {
+      tx.delete(id);
+      if (FB) FB.setDoc(FB.doc(colTx, id), { id, del: true, upd: FB.serverTimestamp() }).catch(e => ui.error(traduz(e)));
+    }
+    mudou();
+  };
+  store.syncNow = () => location.reload();
+  store.signOut = async () => { if (FB) await FB.signOut(fbAuth); lsSet(LS_FB, null); location.reload(); };
+  store.vazio = () => carregou && vazioNuvem && !settings && !tx.size;
+  // Mudança: junta os dados trazidos com os atuais e envia tudo de uma vez (em lotes)
+  store.importar = async (dados) => {
+    const r = juntarImport({ settings, tx: [...tx.values()] }, dados);
+    settings = r.settings;
+    for (const t of r.novos) tx.set(t.id, t);
+    mudou();
+    await enviarSettings();
+    if (FB) {
+      for (let i = 0; i < r.novos.length; i += 400) {
+        const lote = FB.writeBatch(fbDb);
+        for (const t of r.novos.slice(i, i + 400)) lote.set(FB.doc(colTx, t.id), { ...semIndefinidos(t), upd: FB.serverTimestamp() });
+        await lote.commit();
+      }
+    } else for (const t of r.novos) pendTx.add(t.id);
+    salvarCache();
+    return r;
+  };
+
+  // ----- Minhas Compras: compras finalizadas que ainda não foram lançadas aqui -----
+  const lojas = new Map();
+  store.ouvirCompras = (cb) => {
+    if (!FB) return cb([]);
+    const regs = FB.collection(fbDb, "casa", "principal", "regs");
+    let ultimaLista = [];
+    const entregar = () => cb(ultimaLista.map(c => ({ ...c, lojaNome: lojas.get(c.loja) || "" })));
+    FB.onSnapshot(FB.query(regs, FB.where("t", "==", "loja")), (snap) => { snap.forEach(d => lojas.set(d.id, d.data().nome)); entregar(); }, () => {});
+    FB.onSnapshot(FB.query(regs, FB.where("fin", "in", ["pendente", "revisar"])), (snap) => {
+      ultimaLista = snap.docs.map(d => d.data()).filter(c => c.t === "compra" && c.status === "fim" && !c.del);
+      entregar();
+    }, () => cb([]));
+  };
+  store.marcarCompra = async (id, campos) => {
+    if (!FB) throw new Error("Sem conexão com a nuvem.");
+    const ref = FB.doc(fbDb, "casa", "principal", "regs", id);
+    await FB.setDoc(ref, { ...campos, upd: FB.serverTimestamp() }, { merge: true });
+  };
+  return store;
+}
+
 export async function openStore(ui) {
-  if (!cloudConfigured) return localStore();
-  return dropboxStore(ui);
+  if (MODO_LOCAL || !cloudConfigured) return localStore();
+  // volta da conexão com o Dropbox (mudança dos dados): guarda a conexão e segue para o Firebase
+  if (dropboxConfig.appKey) await finishRedirect().catch(e => ui.error(e.message));
+  return firebaseStore(ui);
 }

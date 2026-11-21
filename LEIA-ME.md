@@ -5,42 +5,26 @@ Controle financeiro pessoal: contas, cartões com faturas, categorias e subcateg
 Endereço: **https://guiluccas2.github.io/minhas-financas/**
 
 - **A página** fica no GitHub Pages (endereço fixo, abre em qualquer computador ou celular).
-- **Os dados** ficam num arquivo no seu **Dropbox** (pasta *Aplicativos*). Você conecta o Dropbox uma vez por aparelho e tudo é salvo sozinho e sincronizado entre os aparelhos. Uma cópia fica no navegador, então a página abre na hora e funciona sem internet, enviando as alterações quando a conexão volta.
-- Enquanto o Dropbox não estiver configurado, o sistema funciona em **modo local** (dados só naquele navegador).
+- **Os dados** ficam no **Firebase** (nuvem do Google), no mesmo projeto do Minhas Compras (`minhas-compras-c9691`). Você e sua esposa entram com a própria conta Google e veem os mesmos dados, ao mesmo tempo. Uma cópia fica no navegador, então a página abre na hora e funciona sem internet, enviando o que foi lançado quando a conexão volta.
+- **Quem pode entrar:** só os e-mails escritos nas regras do Firestore (console do Firebase → Firestore → Regras, trecho `match /financas/...`). Os e-mails ficam só lá, nunca no GitHub.
 
-## Configuração (uma vez só, uns 10 minutos)
+## Mudança do Dropbox para o Firebase (uma vez só)
 
-### 1. Ativar o GitHub Pages
+Até a versão 1.6 os dados ficavam no Dropbox. Na primeira vez que abrir a versão nova, entre com o Google. Como a nuvem ainda está vazia, o Início mostra o quadro **Trazer seus dados do Dropbox**:
 
-1. No repositório `guiluccas2/minhas-financas`, vá em *Settings → Pages*.
-2. Em *Build and deployment*, escolha *Deploy from a branch*, branch `main`, pasta `/ (root)`, e clique em *Save*.
-3. Em um ou dois minutos o site estará em **https://guiluccas2.github.io/minhas-financas/**
+- **Trazer do Dropbox agora:** aparece no aparelho que já estava conectado ao Dropbox; baixa o arquivo atual e envia tudo para o Firebase.
+- **Conectar ao Dropbox e trazer:** para um aparelho que não estava conectado; vai ao Dropbox, você autoriza e a mudança continua sozinha.
+- **Usar a cópia deste aparelho:** usa a última cópia que o navegador guardou do Dropbox (útil se o Dropbox não responder).
 
-### 2. Criar o app no Dropbox (gratuito)
+Trazer junta com o que já existe, sem apagar nem duplicar (dá para repetir em *Configurações → Dados → Trazer do Dropbox*). O arquivo no Dropbox não é alterado e continua como cópia de segurança.
 
-1. Acesse <https://www.dropbox.com/developers/apps> e clique em **Create app**.
-   - *Choose an API*: **Scoped access**
-   - *Choose the type of access*: **App folder** (o app só enxerga a própria pasta, nunca o resto do seu Dropbox)
-   - *Name your app*: um nome único, por exemplo `minhas-financas-guiluccas`
-2. Na aba **Permissions**, marque `files.metadata.read`, `files.content.read` e `files.content.write` e clique em *Submit*.
-3. Na aba **Settings**:
-   - Em *OAuth 2 → Redirect URIs*, adicione **`https://guiluccas2.github.io/minhas-financas/`** (com a barra no final) e clique em *Add*.
-   - Em *Allow public clients (Implicit Grant & PKCE)*, deixe **Allow**.
-   - Copie a **App key**.
-4. Coloque a App key no arquivo `js/config.js` (ou mande para o Claude, que atualiza o arquivo). A App key **não é senha**: ninguém acessa seus dados sem entrar na sua conta do Dropbox e autorizar.
+## Compras a lançar (ligação com o Minhas Compras)
 
-> Já tem um app do Dropbox de outro sistema? Dá para reaproveitar, adicionando a Redirect URI acima e as permissões. Mas um app separado mantém os arquivos dos dois sistemas em pastas diferentes.
+Cada compra finalizada no Minhas Compras aparece no Início, no quadro **Compras a lançar**, com data, loja, valor, forma de pagamento e quem comprou.
 
-### 3. Primeiro acesso
-
-1. Abra o site e clique em **Conectar ao Dropbox**. Autorize o app.
-2. Em **Configurações → Importar dados da versão anterior**, escolha o arquivo `financas-dados.json` da pasta do Google Drive. Categorias, cartões e lançamentos são trazidos.
-3. Em **Contas**, cadastre cada conta com o saldo de hoje.
-4. Em **Cartões**, complete limite, dia de fechamento, dia de vencimento e a conta que paga cada fatura.
-
-Nos outros aparelhos, basta abrir o endereço e conectar o mesmo Dropbox.
-
-Os dados ficam em `Dropbox/Aplicativos/minhas-financas/minhas-financas-dados.json`. O próprio Dropbox guarda as versões anteriores desse arquivo, o que também serve de cópia de segurança.
+- **Lançar** abre o lançamento já preenchido (valor, data, loja, pagamento). Na primeira compra de cada loja, a categoria sugerida é *Mercado › Supermercado*; depois o sistema lembra a categoria, o cartão e a conta usados em cada loja.
+- **Não lançar** tira a compra do quadro (por exemplo, paga com vale-alimentação que você não controla aqui).
+- Se a compra for alterada no Minhas Compras depois de lançada, ela volta ao quadro com o valor antigo e o novo: **Abrir lançamento** para corrigir, ou **Está certo** para manter.
 
 ## Instalar como aplicativo no Windows
 
@@ -56,7 +40,7 @@ O sistema ganha ícone no menu Iniciar e na área de trabalho, e abre em janela 
 
 No celular, a navegação fica numa barra embaixo (Início, Lançamentos, **+**, Metas e Mais), e os lançamentos e tabelas aparecem em formato de lista.
 
-**Conectar o Dropbox no celular:** toque em **Conectar ao Dropbox** e autorize. No iPhone, com o app instalado, às vezes o app não volta conectado depois de autorizar. Nesse caso, use **Conectar com um código**: toque em *Abrir o Dropbox para gerar o código*, autorize, copie o código que o Dropbox mostrar e cole no app.
+**Entrar no celular:** abra o app e toque em **Entrar com Google**. No iPhone, o app instalado não aproveita o login feito no Safari: entre de novo dentro do app.
 
 ## Telas
 
@@ -76,7 +60,7 @@ No celular, a navegação fica numa barra embaixo (Início, Lançamentos, **+**,
 - **Em qual mês a compra no cartão conta** (resumo, metas, histórico): no mês da compra (padrão) ou no mês de vencimento da fatura. Escolha em *Configurações*.
 - **Transferências e pagamentos de fatura** não contam como despesa nem receita.
 - **Médias** usam os meses completos anteriores ao mês escolhido, sem contar meses antes do seu primeiro lançamento.
-- **Sincronização entre aparelhos:** cada aparelho compara a versão dele e a do Dropbox com a última versão que os dois tinham em comum, e junta item a item (lançamentos, categorias, contas, cartões, contas fixas, objetivos e depósitos). Não depende do relógio dos aparelhos. Se o mesmo campo for alterado em dois aparelhos ao mesmo tempo, vale o do aparelho que salvou por último.
+- **Sincronização entre aparelhos:** cada lançamento é gravado separado na nuvem e chega aos outros aparelhos em segundos, então duas pessoas lançando ao mesmo tempo não se atrapalham. As configurações (categorias, contas, cartões, contas fixas, objetivos) são juntadas item a item com a versão da nuvem antes de gravar. Se o mesmo campo for alterado em dois aparelhos ao mesmo tempo, vale o que salvou por último.
 - **Última forma de pagamento** usada fica só no aparelho.
 - **Saldo de dias anteriores** ao saldo informado é calculado de trás para frente, a partir dos lançamentos.
 
@@ -104,5 +88,7 @@ Ao publicar uma atualização, mude o número em dois lugares: `APP_VERSION` e `
 
 - `index.html`: estrutura e visual
 - `js/app.js`: telas e cálculos
-- `js/store.js`: gravação e sincronização dos dados (Dropbox ou modo local)
-- `js/config.js`: App key do Dropbox
+- `js/store.js`: gravação e sincronização dos dados (Firebase), mudança do Dropbox, leitura das compras do Minhas Compras
+- `js/merge.js`: junção das configurações entre aparelhos
+- `js/config.js`: identificação do projeto Firebase (não é senha) e App key do Dropbox (só para a mudança)
+- `testes/`: testes automáticos (`bash testes/rodar.sh`)

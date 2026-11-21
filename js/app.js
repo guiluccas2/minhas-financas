@@ -1,8 +1,8 @@
-import { openStore, cloudConfigured, newId } from "./store.js";
+import { openStore, cloudConfigured, newId, dropboxNoAparelho, baixarDoDropbox, conectarDropbox } from "./store.js";
 
 // versão do sistema: mudar aqui e em version.json a cada atualização publicada
-const APP_VERSION = "1.6";
-const APP_DATE = "14/11/2026";
+const APP_VERSION = "1.7";
+const APP_DATE = "21/11/2026";
 
 // =====================================================================
 // helpers
@@ -229,10 +229,10 @@ function cardInfo(card) {
 // boot
 // =====================================================================
 const root = $("#root");
-const ui = { error: (msg) => toast(msg) };
+const ui = { error: (msg) => toast(msg), negado: (msg) => renderLogin(msg) };
 (async () => {
   try { S.store = await openStore(ui); }
-  catch (e) { root.innerHTML = `<div class="login"><div class="card"><h2>Não foi possível iniciar</h2><p class="muted">${esc(e?.message || e)}</p><p class="small muted">Confira a appKey em js/config.js e a sua conexão com a internet.</p></div></div>`; return; }
+  catch (e) { root.innerHTML = `<div class="login"><div class="card"><h2>Não foi possível iniciar</h2><p class="muted">${esc(e?.message || e)}</p><p class="small muted">Confira a sua conexão com a internet e recarregue a página.</p></div></div>`; return; }
   if (S.store.needsLogin) { renderLogin(); return; }
   readHash();
   await S.store.start(({ settings, tx, sync, ver }) => {
@@ -243,35 +243,24 @@ const ui = { error: (msg) => toast(msg) };
     S.tx = tx.filter(t => t && t.d).sort((a, b) => b.d.localeCompare(a.d) || (b.at || 0) - (a.at || 0));
     S.sync = sync; S.loaded = true;
     applyTheme(); clearCaches(); render();
+    if (sessionStorage.getItem("mf-migrar") && dropboxNoAparelho().conectado) { sessionStorage.removeItem("mf-migrar"); ACTIONS["migrar-dropbox"](); }
   });
+  // Minhas Compras: compras finalizadas esperando lançamento
+  S.store.ouvirCompras?.((lista) => { S.compras = lista.sort((a, b) => b.data.localeCompare(a.data)); if (S.loaded) render(); });
 })();
 
-function renderLogin() {
+function renderLogin(msg = "") {
+  const u = S.store?.user;
   root.innerHTML = `<div class="login"><div class="card">
     <div class="brand" style="padding:0"><i>R$</i>Minhas Finanças</div>
-    <p class="muted" style="margin:0">Conecte sua conta do Dropbox, onde seus dados ficam guardados. Você só precisa fazer isso uma vez em cada aparelho.</p>
-    <button class="btn" id="signin">Conectar ao Dropbox</button>
-    <details id="codeBox" ${navigator.standalone ? "open" : ""} style="width:100%;text-align:left"><summary class="small muted" style="cursor:pointer">${navigator.standalone ? "No iPhone, conecte com um código:" : "Não voltou conectado (comum no iPhone)? Conectar com um código"}</summary>
-      <div style="display:grid;gap:8px;margin-top:10px">
-        <div class="small">1. <button class="link" id="codeOpen">Abrir o Dropbox para gerar o código</button>, ou <button class="link" id="codeCopy">copiar o link</button> e abrir no Safari ou em outro navegador (até no computador)<br>2. Entre no Dropbox se pedir, toque em <b>Permitir</b> e copie o código que aparecer<br>3. Cole o código aqui:</div>
-        <input class="field small" id="codeLink" readonly hidden onclick="this.select()" aria-label="Link de autorização">
-        <div class="actions"><input class="field" id="codeIn" placeholder="Código do Dropbox" autocomplete="off" style="flex:1"><button class="btn sm" id="codeGo">Conectar</button></div>
-      </div></details>
+    <p class="muted" style="margin:0">Entre com a sua conta Google. Os dados ficam guardados na nuvem e aparecem em todos os aparelhos, seus e da sua esposa.</p>
+    ${msg ? `<div class="err">${esc(msg)}</div>` : ""}
+    ${msg && u ? `<button class="btn" id="signout2">Sair e entrar com outro e-mail</button>` : `<button class="btn" id="signin">Entrar com Google</button>`}
     <div class="err" id="loginErr"></div></div></div>`;
-  $("#codeOpen").onclick = () => S.store.startCode().catch(e => { $("#loginErr").textContent = e.message; });
-  $("#codeCopy").onclick = async () => {
-    const url = await S.store.codeUrl(false), box = $("#codeLink");
-    box.value = url; box.hidden = false;
-    try { await navigator.clipboard.writeText(url); toast("Link copiado. Abra no navegador, permita e volte com o código."); }
-    catch { box.focus(); box.select(); toast("Selecione e copie o link acima."); }
-  };
-  $("#codeGo").onclick = async () => {
-    const code = $("#codeIn").value.trim(); if (!code) return $("#codeIn").focus();
-    try { await S.store.finishCode(code); location.reload(); } catch (e) { $("#loginErr").textContent = "Não foi possível conectar com esse código: " + (e?.message || e) + ". Gere um código novo e tente de novo."; }
-  };
-  $("#signin").onclick = async () => {
-    try { await S.store.signIn(); } catch (e) { $("#loginErr").textContent = "Não foi possível conectar: " + (e?.message || e); }
-  };
+  $("#signin")?.addEventListener("click", async () => {
+    try { await S.store.signIn(); } catch (e) { $("#loginErr").textContent = "Não foi possível entrar: " + (e?.message || e); }
+  });
+  $("#signout2")?.addEventListener("click", () => S.store.signOut());
 }
 
 function applyTheme() {
@@ -288,7 +277,7 @@ function readHash() { const h = location.hash.slice(1); S.view = VIEWS[h] ? h : 
 addEventListener("hashchange", () => { readHash(); render(); scrollTo(0, 0); });
 const go = (v) => { if (location.hash !== "#" + v) location.hash = v; else { readHash(); render(); } };
 
-const SYNC_TXT = { saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" };
+const SYNC_TXT = { saved: "Salvo na nuvem", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" };
 function updateSyncUI() {
   document.querySelectorAll(".sync").forEach(el => { el.className = "sync " + S.sync; el.innerHTML = `<i></i>${esc(SYNC_TXT[S.sync] || "")}`; });
   document.querySelectorAll(".mtop-sync").forEach(el => { el.className = "mtop-sync " + S.sync; el.title = SYNC_TXT[S.sync] || ""; });
@@ -348,7 +337,7 @@ function render() {
 }
 
 function topBar(title, withMonth = true) {
-  return `<div class="top"><h1><span class="mtop-sync ${S.sync}" title="${esc({ saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet", error: "Erro ao sincronizar", local: "Modo local" }[S.sync] || "")}"></span>${title}</h1>${withMonth ? `<div class="month">
+  return `<div class="top"><h1><span class="mtop-sync ${S.sync}" title="${esc({ saved: "Salvo na nuvem", saving: "Salvando…", offline: "Sem internet", error: "Erro ao sincronizar", local: "Modo local" }[S.sync] || "")}"></span>${title}</h1>${withMonth ? `<div class="month">
     <div class="arrows"><button data-act="month" data-k="-1" aria-label="Mês anterior">‹</button><button data-act="month" data-k="1" aria-label="Próximo mês">›</button></div>
     <label class="lbl"><span>${esc(monthName(S.month))}</span>▾<input type="month" id="monthPick" value="${S.month}" aria-label="Escolher mês"></label>
     <button class="today ${S.month !== curMonth() ? "show" : ""}" data-act="month-today">Hoje</button></div>` : ""}</div>`;
@@ -397,6 +386,8 @@ function viewInicio() {
   const nextDue = fatRows.filter(r => r.due && r.amt - r.paid > 0).sort((a, b) => a.due.localeCompare(b.due))[0];
 
   return `${topBar("Início")}
+  ${mudancaHTML()}
+  ${comprasHTML()}
   ${quickHTML()}
   ${onboardingHTML()}
   <section class="grid3">
@@ -460,6 +451,54 @@ function viewInicio() {
     <div class="card-head"><h2>Últimos lançamentos</h2><a class="link" href="#lancamentos">Ver todos de <span class="cap">${esc(monthName(m, { month: "long" }))}</span></a></div>
     ${txTableHTML(S.tx.filter(t => t.m === m).slice(0, 8), false) || `<div class="muted">Nada lançado em ${esc(monthName(m))}. Use a barra acima ou o botão <b>+ Lançar</b>.</div>`}
   </section>`;
+}
+
+// ---------- Mudança dos dados do Dropbox para o Firebase ----------
+function mudancaHTML() {
+  if (!S.store.vazio?.() || S.migrando === "ok") return S.migrando === "ok" ? "" : "";
+  const dbx = dropboxNoAparelho();
+  return `<section class="card"><h2>Trazer seus dados do Dropbox</h2>
+    <p class="muted small" style="margin:0">O Minhas Finanças agora guarda os dados no Firebase (nuvem do Google), com você e sua esposa usando ao mesmo tempo. Traga os lançamentos, contas, cartões e categorias que estão no Dropbox. O arquivo no Dropbox continua lá, intacto, como cópia de segurança.</p>
+    ${S.migrando === "rodando" ? `<div class="info">Trazendo os dados… não feche a página.</div>` : `<div class="actions">
+      ${dbx.conectado ? `<button class="btn" data-act="migrar-dropbox">Trazer do Dropbox agora</button>` : `<button class="btn" data-act="migrar-conectar">Conectar ao Dropbox e trazer</button>`}
+      ${dbx.copia ? `<button class="btn ghost" data-act="migrar-copia">Usar a cópia deste aparelho (${dbx.copia.tx.length} lançamentos)</button>` : ""}
+      <button class="btn ghost" data-act="import">Restaurar de um arquivo</button></div>
+    <div class="muted small">Faça isso uma vez só, no aparelho em que você usava o Dropbox. Se a sua esposa abrir antes, ela pode ignorar este quadro.</div>`}
+  </section>`;
+}
+async function migrar(fonte) {
+  S.migrando = "rodando"; render();
+  try {
+    const dados = fonte === "copia" ? dropboxNoAparelho().copia : await baixarDoDropbox();
+    const r = await S.store.importar(dados);
+    S.migrando = "ok";
+    toast(`Pronto! ${r.novos.length} lançamentos trazidos do Dropbox.`);
+  } catch (e) { S.migrando = null; toast("Não foi possível trazer: " + (e?.message || e)); }
+  render();
+}
+
+// ---------- Minhas Compras: compras a lançar ----------
+const PAG_COMPRAS = { "Crédito": "credito", "Débito": "debito", "Pix": "pix", "Dinheiro": "dinheiro" };
+const centavos = (v) => Math.round((Number(v) || 0) * 100);
+function comprasHTML() {
+  const lista = S.compras || [];
+  if (!lista.length) return "";
+  return `<section class="card" id="compras-lancar"><h2>Compras a lançar <span class="muted small">· do Minhas Compras</span></h2>
+    <div style="display:grid;gap:10px">${lista.map(c => c.fin === "revisar" ? `
+      <div class="kv"><span><b>${esc(dm(c.data))} · ${esc(c.lojaNome || "Compra")}</b><br><span class="small out-c">Alterada depois de lançada: era ${money(c.finValor || 0)}, agora ${money(centavos(c.total))}</span></span>
+        <span class="actions">${S.tx.some(t => t.id === c.finTx) ? `<button class="btn sm" data-act="compra-revisar" data-id="${esc(c.id)}">Abrir lançamento</button>` : `<button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button>`}<button class="btn ghost sm" data-act="compra-ok" data-id="${esc(c.id)}">Está certo</button></span></div>` : `
+      <div class="kv"><span><b>${esc(dm(c.data))} · ${esc(c.lojaNome || "Compra")} · ${money(centavos(c.total))}</b><br><span class="muted small">${[c.pag, c.nItens ? c.nItens + " itens" : "", c.por ? "por " + c.por : ""].filter(Boolean).map(esc).join(" · ")}</span></span>
+        <span class="actions"><button class="btn sm" data-act="compra-lancar" data-id="${esc(c.id)}">Lançar</button><button class="btn ghost sm" data-act="compra-ignorar" data-id="${esc(c.id)}">Não lançar</button></span></div>`).join("")}
+    </div></section>`;
+}
+function lancarCompra(c) {
+  const pref = (st().comprasPref || {})[c.loja] || {};
+  const p = PAG_COMPRAS[c.pag] || pref.p || "";
+  const mercado = activeCats("out").find(x => ["mercado", "supermercado", "alimentacao", "alimentação"].includes(norm(x.name)));
+  const c0 = pref.c && catById(pref.c) ? pref.c : mercado?.id || null;
+  openSheet({ t: "out", v: centavos(c.total), d: c.data, n: c.lojaNome || "", o: `Minhas Compras${c.nItens ? " · " + c.nItens + " itens" : ""}`,
+    c: c0, s: pref.c === c0 ? pref.s || null : (catById(c0)?.subs || []).find(x => !x.archived && norm(x.name) === "supermercado")?.id || null, p, k: p === "credito" && pref.p === "credito" ? pref.k || "" : (p === "credito" ? "" : ""), a: p !== "credito" && pref.a ? pref.a : st().prefs.defaultAccount || "",
+    compra: c.id, compraLoja: c.loja, compraValor: centavos(c.total), pn: 1 });
 }
 
 function onboardingHTML() {
@@ -901,9 +940,11 @@ function viewConfig() {
       <select class="field" id="defAcc" data-change="def-acc"><option value="">Nenhuma (lançar sem conta)</option>${activeAccs().map(a => `<option value="${esc(a.id)}" ${p.defaultAccount === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></label>
     <div class="muted small">Exemplos que a barra entende: <b>mercado 230</b> · <b>padaria 12,50 ontem nubank</b> · <b>uber 18 dia 3 pix inter</b> · <b>+ salário 6120 05/11</b></div></section>
   <section class="card"><h2>Dados</h2>
-    ${S.store.mode === "cloud" ? `<div class="kv"><span>Conectado ao Dropbox${u ? ` de <b>${esc(u.displayName || u.email)}</b>` : ""}. Tudo é salvo sozinho no arquivo <b>minhas-financas-dados.json</b>, na pasta do app no seu Dropbox (Aplicativos), e aparece em qualquer aparelho conectado.</span>
-        <span class="actions"><button class="btn ghost sm" data-act="sync-now">Sincronizar agora</button><button class="btn ghost sm" data-act="signout">Desconectar</button></span></div>`
-      : `<div class="info warn">Modo local: os dados estão só neste navegador. Para salvar no Dropbox e abrir em qualquer aparelho, configure a appKey seguindo o arquivo LEIA-ME do projeto.</div>`}
+    ${S.store.mode === "firebase" ? `<div class="kv"><span>Conectado${u ? ` como <b>${esc(u.displayName || u.email)}</b>` : ""}. Tudo é salvo sozinho na nuvem (Firebase) e aparece em todos os aparelhos, seus e da sua esposa. Sem internet, o que você lançar é enviado quando a conexão voltar.</span>
+        <span class="actions"><button class="btn ghost sm" data-act="sync-now">Atualizar agora</button><button class="btn ghost sm" data-act="signout">Sair</button></span></div>
+      <div class="kv"><span>Dados antigos do Dropbox: trazer (ou trazer de novo) junta com os atuais, sem apagar nem duplicar nada. O arquivo no Dropbox continua lá como cópia.</span>
+        <span class="actions"><button class="btn ghost sm" data-act="migrar-dropbox">Trazer do Dropbox</button></span></div>`
+      : `<div class="info warn">Modo local: os dados estão só neste navegador.</div>`}
     <div class="actions">
       <button class="btn ghost sm" data-act="import">Restaurar uma cópia de segurança</button>
       <button class="btn ghost sm" data-act="export-json">Baixar cópia de segurança</button>
@@ -915,7 +956,7 @@ function viewConfig() {
     <div class="small"><b>No celular Android</b> (Chrome): abra o site, toque no menu <b>⋮</b> → <b>Instalar app</b> (ou <b>Adicionar à tela inicial</b>). <b>No iPhone</b> (Safari): toque em <b>Compartilhar</b> (quadrado com seta para cima) → <b>Adicionar à Tela de Início</b> → <b>Adicionar</b>. O ícone aparece junto com os outros apps.</div>
     ${S.installPrompt ? `<div><button class="btn sm" data-act="install">Instalar agora</button></div>` : ""}</section>
   <section class="card"><h2>Apagar todos os dados</h2>
-    <div class="muted small" style="margin-top:-6px">Apaga lançamentos, contas, cartões, categorias, contas fixas e objetivos, para começar do zero. Não dá para desfazer${S.store.mode === "cloud" ? " (o Dropbox guarda versões anteriores do arquivo por 30 dias)" : ""}.</div>
+    <div class="muted small" style="margin-top:-6px">Apaga lançamentos, contas, cartões, categorias, contas fixas e objetivos, para começar do zero. Não dá para desfazer. Antes, use “Baixar cópia de segurança”.</div>
     <div class="actions">${S.confirmWipe ? `<b class="out-c">Tem certeza?</b><button class="btn danger sm" data-act="wipe-yes">Sim, apagar tudo</button><button class="btn ghost sm" data-act="wipe-no">Não</button>` : `<button class="btn ghost sm" data-act="wipe">Apagar todos os dados</button>`}</div></section>`;
 }
 
@@ -1123,7 +1164,7 @@ function renderSheetInner() {
 }
 function renderMenuSheet() {
   const th = st().prefs.theme;
-  const syncTxt = { saved: "Salvo no Dropbox", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" }[S.sync] || "";
+  const syncTxt = { saved: "Salvo na nuvem", saving: "Salvando…", offline: "Sem internet: salva depois", error: "Erro ao sincronizar: tentando de novo", local: "Modo local (só neste aparelho)" }[S.sync] || "";
   sheet.innerHTML = `<div class="sheet-head"><h2>Menu</h2><button class="iconbtn" data-act="close" aria-label="Fechar">✕</button></div>
     <div class="menu-list">${Object.keys(VIEWS).map(v => `<a class="nav" href="#${v}" data-act="close" aria-current="${S.view === v ? "page" : "false"}">${icon(VIEWS[v][1])}${VIEWS[v][0]}</a>`).join("")}</div>
     <div class="theme" role="group" aria-label="Tema"><button data-act="theme" data-v="light" aria-pressed="${th === "light"}">Claro</button><button data-act="theme" data-v="dark" aria-pressed="${th === "dark"}">Escuro</button><button data-act="theme" data-v="auto" aria-pressed="${th === "auto"}">Auto</button></div>
@@ -1193,8 +1234,15 @@ function saveSheet(more) {
       list = [mkTx({ ...base, v: f.v, d: f.d, r: rec.id, rm: rec.start })]; msg = "Salvo e cadastrado como conta fixa";
     } else { list = [mkTx({ ...base, v: f.v, d: f.d })]; msg = `Salvo em ${catById(f.c)?.name || ""}`; }
   }
-  if (f.rec && !orig) saveSettings();   // só regrava as configurações quando nasce uma conta fixa
+  // compra do Minhas Compras: lembra categoria/pagamento da loja e marca a compra como lançada
+  if (f.compra && !orig) {
+    list.forEach(t => { t.compra = f.compra; });
+    st().comprasPref = { ...(st().comprasPref || {}), [f.compraLoja]: { c: f.c, s: f.s || "", p: base.p, k: base.k, a: base.a } };
+  }
+  if ((f.rec && !orig) || (f.compra && !orig)) saveSettings();   // regrava as configurações antes dos lançamentos
   putTx(list); toast(msg);
+  if (f.compra && !orig) S.store.marcarCompra?.(f.compra, { fin: "lancado", finTx: list[0].id, finValor: f.compraValor ?? f.v }).catch(e => toast("Lançado, mas não foi possível avisar o Minhas Compras: " + e.message));
+  if (f.compraRevisar && orig) S.store.marcarCompra?.(f.compraRevisar, { fin: "lancado", finValor: f.compraValor ?? f.v }).catch(() => {});
   if (more) openSheet({ t: f.t, d: f.d }); else closeSheet();
 }
 
@@ -1624,7 +1672,17 @@ const ACTIONS = {
   // config
   cardmonth: (el) => { st().prefs.cardMonth = el.dataset.v; saveSettings(); },
   signout: () => S.store.signOut(),
-  "sync-now": () => { S.store.syncNow?.(); toast("Sincronizando com o Dropbox…"); },
+  "migrar-dropbox": () => migrar("dropbox"),
+  "migrar-copia": () => migrar("copia"),
+  "migrar-conectar": () => conectarDropbox(),
+  "compra-lancar": (el) => { const c = (S.compras || []).find(x => x.id === el.dataset.id); if (c) lancarCompra(c); },
+  "compra-ignorar": async (el) => { try { await S.store.marcarCompra(el.dataset.id, { fin: "ignorado" }); toast("Compra marcada para não lançar"); } catch (e) { toast(e.message); } },
+  "compra-ok": async (el) => { const c = (S.compras || []).find(x => x.id === el.dataset.id); try { await S.store.marcarCompra(c.id, { fin: "lancado", finValor: centavos(c.total) }); toast("Ok, mantido como está"); } catch (e) { toast(e.message); } },
+  "compra-revisar": (el) => {
+    const c = (S.compras || []).find(x => x.id === el.dataset.id); const t = S.tx.find(x => x.id === c?.finTx); if (!t) return;
+    openSheet({ id: t.id, t: t.t, v: centavos(c.total), c: t.c || null, s: t.s || null, p: t.p || "", k: t.k || "", a: t.a || "", a2: t.a2 || "", n: t.n || "", o: t.o || "", d: t.d, compraRevisar: c.id, compraValor: centavos(c.total) });
+  },
+  "sync-now": () => { S.store.syncNow?.(); toast("Sincronizando…"); },
   import: () => $("#importInput").click(),
   "export-json": () => downloadText(`financas-backup-${todayISO()}.json`, JSON.stringify({ app: "minhas-financas", v: 3, exportedAt: new Date().toISOString(), settings: st(), transactions: S.tx }, null, 1), "application/json"),
   "export-csv": () => exportCSV(),
